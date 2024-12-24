@@ -25,7 +25,7 @@ class EnvTeacher(gym.Env):
         # self.observation_space = self.env.observation_space
         # self.action_space = self.env.action_space
         # self.n_actions = env.n_actions
-        # self.gamma = env.gamma
+        self.gamma = env.gamma
 
         # discretization
         self.chunk_size = 0.1
@@ -50,7 +50,7 @@ class EnvTeacher(gym.Env):
         self.clipping_epsilon = args["clipping_epsilon"]
         self.n_steps_to_follow_orig = 5000 #2000
         self.switch_teacher = False
-    # enddef
+        self.n_actions = env.problem_size
 
     def reset(self):
         self.episode_goal_visited = False
@@ -63,19 +63,7 @@ class EnvTeacher(gym.Env):
         next_state, reward, done = self.env.step(action)
         r_hat = self.get_reward(current_state_embed, action, next_state.current_node, done)
 
-        # if (self.env.n_picks == 1):
-        #     if (self.env.reward_range[0] <= current_state[0]
-        #         <= self.env.reward_range[1] and current_state[1] == 1):
-        #         self.goal_visits += 1.0
-
-        # if (self.env.n_picks > 1):
-        #     if (self.env.reward_range[0] <= current_state[0]
-        #         <= self.env.reward_range[1] and current_state[4] == 1):
-        #         self.goal_visits += 1.0
-
-        # return np.array(next_state.current_node.cpu()), r_hat, done
         return next_state, r_hat, done
-    # enddef
 
     def get_reward(self, state, action, next_state, done):
 
@@ -88,82 +76,29 @@ class EnvTeacher(gym.Env):
             return r_orig + self.Rexploit(state, action) if self.switch_teacher \
                 else r_orig
 
-        elif self.teacher_name == "ExploRS":
-            #update R_explore
-            self.update_Rexplore_given_state(state)
-
-            return r_orig + self.Rexploit(state, action) + self. Rexplore(next_state) if self.switch_teacher \
-                else r_orig + self.Rexplore(next_state)
-
     def get_reward_print(self, state, action):
         next_state = self.env.get_transition(state, action)
         r_hat = self.get_reward(state, action, next_state)
         if torch.is_tensor(r_hat):
             r_hat = float(r_hat.detach().numpy())
         return np.round(r_hat, 4)
-    #enddef
 
     def get_state_int_from_oneHot_encoding(self, state_one_hot):
         state_int = np.nonzero(state_one_hot)[0][0]
         return state_int
-    #enddef
-
-    def Rexplore(self, state):
-
-        if self.env.terminal_state == 1 and \
-                state[0] == - 1:
-            return 0.0
-
-        numerator = self.args["ExploB_lmbd"]
-        N_s = np.power(self.args["ExploB_lmbd"] / self.args["ExploB_max"], 2.0) + self.ExploB_w[self.phi(state)]
-        denominator = np.sqrt(N_s)
-        # print(numerator/denominator)
-        return numerator/denominator
-    # enddef
 
     def Rexploit(self, state, action):
         R_exploit = self.SelfRS_network.network(torch.Tensor(state))
         return R_exploit[action] * self.clipping_epsilon
     # enddef
 
-    def R_ExploRS(self, state, action, next_state):
-        return self.Rexploit(state, action) + self.Rexplore(next_state)
-    #enddef
-
     def update(self, D, agent=None, epsilon_reinforce=0.0):
-        return self.update_ExploRS(D)
-
-    # def update_Rexplore_given_state(self, state):
-    #     self.ExploB_w[self.phi(state)] += 1.0
-    #enddef
-
-    def phi(self, state):
-
-        coord_x = state[0]
-        chunk_number = 0
-        if self.env.n_picks == 1:
-            if state[1] == 1:
-                chunk_number = 1
-
-        if self.env.n_picks > 1:
-            if state[1] == 1:
-                chunk_number = 1 + np.nonzero(state[4:])[0][0]
-
-
-        abstracted_state_tmp = np.floor(coord_x / self.chunk_size)
-
-        if abstracted_state_tmp == self.n_chunks:
-            abstracted_state_tmp = self.n_chunks - 1
-
-        abstracted_state = int(((chunk_number) * self.n_chunks) + abstracted_state_tmp)
-
-        return abstracted_state
-    #enddef
+        return self.update_SelfRS(D)
 
     def update_SelfRS(self, D):
 
         self.first_succesfull_traj = True
-
+        torch.autograd.set_detect_anomaly(True)
         postprocess_D = self.postprocess_data(D)
 
         for traj in postprocess_D:
@@ -171,18 +106,24 @@ class EnvTeacher(gym.Env):
             returns_batch_G_bar = []
             accumulator = []
 
-            if traj[0][7] > 0.0 and self.first_succesfull_traj:
+            if traj[0]['G_bar'][0, 0] > 0.0 and self.first_succesfull_traj:
+                # 直接取第一个batch的第一个pomo的G_bar
                 self.nonzero_return_count += 1
                 self.first_succesfull_traj = False
 
-            for s, a, _, _, _, pi_given_s_array, _, G_bar in traj:
+            for step in traj:
 
                 # save states batch and returns batch for training value network
+                s = step['state']
+                a = step['action']
+                probs = step['probs']
+                prob = step['prob']
+                G_bar = step['G_bar']
                 states_batch.append(s)
                 returns_batch_G_bar.append(G_bar)
-                V_s = float(self.value_network.network(torch.Tensor(s)).detach().numpy())
+                V_s = self.value_network.network(torch.Tensor(s)).detach().squeeze()
                 one_hot_encoding_action_a = np.zeros(self.n_actions)
-                one_hot_encoding_action_a[a] = 1.0
+                one_hot_encoding_action_a[a.cpu()] = 1.0
                 one_hot_encoding_action_a_var = Variable(torch.Tensor(one_hot_encoding_action_a))
 
                 # sum over action b
@@ -192,29 +133,43 @@ class EnvTeacher(gym.Env):
                     one_hot_encoding_action_b[b] = 1.0
                     one_hot_encoding_action_b_var = Variable(torch.Tensor(one_hot_encoding_action_b))
                     accumulator_sum_action_b.append(torch.sum(self.SelfRS_network.network(torch.Tensor(s)) *
-                                                              one_hot_encoding_action_b_var * pi_given_s_array[b]))
+                                                              one_hot_encoding_action_b_var * probs[b]))
 
                 final_result_left_hand_side = torch.sum(self.SelfRS_network.network(torch.Tensor(s)) *
                                                         one_hot_encoding_action_a_var) \
                                               - torch.sum(torch.stack(accumulator_sum_action_b))
 
-                accumulator.append(pi_given_s_array[a] * (G_bar - V_s) *
+                accumulator.append(prob * (G_bar - V_s) *
                                    final_result_left_hand_side)
-
+            
             loss = -torch.mean(torch.stack(accumulator))
+            # print(f"Loss shape: {loss.shape}")
+            # print(f"Loss computation graph:", loss.grad_fn)
+            # print(f"Loss requires_grad: {loss.requires_grad}")
 
+            # for name, param in self.SelfRS_network.named_parameters():
+            #     print(f"Parameter {name}:")
+            #     print(f"  requires_grad: {param.requires_grad}")
+            #     print(f"  shape: {param.shape}")
+            # for name, param in self.SelfRS_network.named_parameters():
+            #     if param.grad is not None:
+            #         print(f"Gradient for {name}:", param.grad.norm().item())
+            #     else:
+            #         print(f"No gradient for {name} - Parameter shape:", param.shape)
             # update SelfRS network
             self.SelfRS_network.zero_grad()
             self.SelfRS_network.optimizer.zero_grad()
+            
             loss.backward()
             self.SelfRS_network.optimizer.step()
 
+            print(type(states_batch))
+            states_batch = [s.detach().cpu() if torch.is_tensor(s) else s for s in states_batch]
             states_batch = np.array(states_batch)
+            returns_batch_G_bar = [G_bar.detach().cpu() if torch.is_tensor(G_bar) else G_bar for G_bar in returns_batch_G_bar]
             returns_batch_G_bar = np.array(returns_batch_G_bar)
 
             self.update_value_network(states_batch, returns_batch_G_bar)
-
-    # enddef
 
     def update_value_network(self, states_batch, returns_batch):
         # update value network
@@ -240,48 +195,47 @@ class EnvTeacher(gym.Env):
     # enddef
 
     def postprocess_data(self, D):
-
         postprocessed_D = []
 
-        # episode --> [state, action, \hat{r}, next_state, \hat(G), \pi(.|state)]
         for episode in D:
-            # postProcessed episode --> [state, action, \hat{r}, next_state, \hat(G), \pi(.|state), \bar{r}, \bar{G}]
             postprocessed_epidata = self.get_postposessed_episode(self.env, episode)
 
             # add postprocessed episode
             postprocessed_D.append(postprocessed_epidata)
 
         return postprocessed_D
-    #enddef
-
+    
     def get_postposessed_episode(self, env_orig, episode):
 
         postprocessed_epidata = []
         for t in range(len(episode)):
-            state, action, r_hat, next_state, G_hat, pi_given_s = episode[t]
-
             # get original reward
-            r_bar = self.get_original_reward(env_orig, state, action, next_state)
-
-            # postProcessed episode --> [state, action, \hat{r}, next_state, \hat(G), \pi(.|state), \bar{r}, \bar{G}]
-            e_t = [state, action, r_hat, next_state, G_hat, pi_given_s, r_bar, 0.0]
-
+            done = episode[t]['done']
+            r_bar = self.get_original_reward(env_orig, done)
+            e_t = {
+                'state': episode[t]['state'],
+                'action': episode[t]['action'],
+                'reward_hat': episode[t]['reward_hat'],
+                'G_hat': episode[t]['G_hat'],
+                'prob': episode[t]['prob'],
+                'probs': episode[t]['probs'],
+                'done': done,
+                'reward_bar': r_bar,
+                'G_bar': None,
+            }
             postprocessed_epidata.append(e_t)
 
-        # compute return \bar{G} for every (s, a)
-        G_bar = 0  # original return
-        for i in range(len(postprocessed_epidata) - 1, -1, -1):  # iterate backwards
-            _, _, _, _, _, _, r_bar, _ = postprocessed_epidata[i]
-            G_bar = r_bar + env_orig.gamma * G_bar
-            postprocessed_epidata[i][7] = G_bar  # update G_bar in episode
+        G_bar = torch.zeros_like(episode[-1]['reward_hat'])
+        for i in range(len(postprocessed_epidata) - 1, -1, -1):
+            reward = postprocessed_epidata[i]['reward_bar']
+            G_bar = reward + self.env.gamma * G_bar
+            postprocessed_epidata[i]['G_bar'] = G_bar.detach()
 
         return postprocessed_epidata
-    #enddef
 
-    def get_original_reward(self, env_orig, state, action, next_state=None):
-        r_bar = env_orig.get_reward(state, action)
+    def get_original_reward(self, env_orig, done):
+        r_bar = env_orig.get_reward(done)
         return r_bar
-    #enddef
 
     def get_pairwise_data_using_return(self, postprocessed_D):
         pairwise_data = []

@@ -74,7 +74,7 @@ class CriticNetwork(torch.nn.Module):
         # specifics of the network architecture
         self.network = torch.nn.Sequential(
             # torch.nn.Linear(env.observation_space.shape[0], n_nodes),
-            torch.nn.Linear(env.problem_size * 5, n_nodes),
+            torch.nn.Linear(128, n_nodes), # 128 is the embedding dimension
             torch.nn.ReLU(),
             torch.nn.Linear(n_nodes, 1)
         ).float()
@@ -110,7 +110,8 @@ class CriticNetwork(torch.nn.Module):
         pred_batch = self.network(state_batch)
 
         # compute the MSE loss for the critic network based on the batch
-        loss = torch.nn.functional.smooth_l1_loss(pred_batch, target_batch.unsqueeze(1))
+        print(pred_batch.shape, target_batch.shape)
+        loss = torch.nn.functional.smooth_l1_loss(pred_batch, target_batch.unsqueeze(3))
 
         # back-propagate the loss
         self.optimizer.zero_grad()
@@ -119,10 +120,7 @@ class CriticNetwork(torch.nn.Module):
         # update the parameters of the Critic Network
         self.optimizer.step()
 
-        return loss.detach().numpy()
-    #enddef
-#endclass
-
+        return loss.detach().cpu().numpy()
 
 class RexploitNetwork(torch.nn.Module):
     def __init__(self, env, argv, n_nodes=256):
@@ -130,7 +128,7 @@ class RexploitNetwork(torch.nn.Module):
         # specifics of network architecture
         self.network = torch.nn.Sequential(
             # torch.nn.Linear(env.observation_space.shape[0], n_nodes),
-            torch.nn.Linear(env.problem_size * 5, n_nodes),
+            torch.nn.Linear(128, n_nodes), # 128 is the embedding dimension
             torch.nn.ReLU(),
             # torch.nn.Linear(n_nodes, env.action_space.n),
             torch.nn.Linear(n_nodes, env.problem_size),
@@ -139,16 +137,8 @@ class RexploitNetwork(torch.nn.Module):
         # optimizer for the Actor Network
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=argv["eta_phi_SelfRS"])
 
-    #     self.apply(self._init_weights)
-    #
-    # def _init_weights(self, module):  # initialize with ones
-    #     if isinstance(module, torch.nn.Linear):
-    #         module.weight.data.fill_(0.0)
-    #
-    #         if module.bias is not None:
-    #             module.bias.data.fill_(0.0)
-    #     # enddef
-#endclass
+        for param in self.network.parameters():
+            param.requires_grad = True
 
 class RSORSNetwork(torch.nn.Module):
     def __init__(self, env, argv, n_nodes=256):

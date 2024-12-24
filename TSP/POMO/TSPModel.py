@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import numpy as np
 
 class TSPModel(nn.Module):
 
@@ -17,6 +17,8 @@ class TSPModel(nn.Module):
         self.qkv_dim = model_params['qkv_dim']
         self.head_num = model_params['head_num']
 
+        self.problem_size = model_params['problem_size']
+
     def pre_forward(self, reset_state):
         self.encoded_nodes = self.encoder(reset_state.problems)
         # shape: (batch, problem, EMBEDDING_DIM)
@@ -29,17 +31,21 @@ class TSPModel(nn.Module):
         if state.current_node is None:
             selected = torch.arange(pomo_size)[None, :].expand(batch_size, pomo_size)
             prob = torch.ones(size=(batch_size, pomo_size))
+            probs = prob[:, :, None].expand(batch_size, pomo_size, self.problem_size).clone()
+            probs.zero_()
+            probs.scatter_(2, selected.unsqueeze(-1), 1)
 
             encoded_first_node = _get_encoding(self.encoded_nodes, selected)
             # shape: (batch, pomo, embedding)
             self.decoder.set_q1(encoded_first_node)
-
+            state_embed = torch.zeros((batch_size, pomo_size, self.qkv_dim*self.head_num))
         else:
             encoded_last_node = _get_encoding(self.encoded_nodes, state.current_node)
             # shape: (batch, pomo, embedding)
-            probs = self.decoder(encoded_last_node, ninf_mask=state.ninf_mask)
+            probs, q_last_concat = self.decoder(encoded_last_node, ninf_mask=state.ninf_mask)
             # shape: (batch, pomo, problem)
-
+            state_embed = self.decoder.q_first + q_last_concat
+            state_embed = state_embed.reshape(batch_size, pomo_size, self.qkv_dim*self.head_num)
             if self.training or self.model_params['eval_type'] == 'softmax':
                 while True:
 
@@ -59,23 +65,7 @@ class TSPModel(nn.Module):
                 # shape: (batch, pomo)
                 prob = None
 
-        return selected, prob
-    
-    def q_forward(self, state):
-        # get the input of decoder
-        batch_size = state.BATCH_IDX.size(0)
-        pomo_size = state.BATCH_IDX.size(1)
-
-        if state.current_node is None:
-            q = torch.zeros((batch_size, pomo_size, self.qkv_dim*self.head_num))  # (batch, pomo, 16)
-
-        else:
-            encoded_last_node = _get_encoding(self.encoded_nodes, state.current_node)
-            # shape: (batch, pomo, embedding)
-            q = self.decoder.q_forward(encoded_last_node)
-
-        return q
-
+        return selected, probs, prob, state_embed
 
 def _get_encoding(encoded_nodes, node_index_to_pick):
     # encoded_nodes.shape: (batch, problem, embedding)
@@ -199,13 +189,8 @@ class TSP_Decoder(nn.Module):
     def set_q1(self, encoded_q1):
         # encoded_q.shape: (batch, n, embedding)  # n can be 1 or pomo
         head_num = self.model_params['head_num']
-
         self.q_first = reshape_by_heads(self.Wq_first(encoded_q1), head_num=head_num)
-        # shape: (batch, head_num, n, qkv_dim)
-        q_trans = self.q_first.transpose(1, 2).contiguous()
-        # shape: (batch, n, head_num, qkv_dim)
-        batch, n, head_num, qkv_dim = q_trans.shape
-        self.q_first_concat = q_trans.view(batch, n, head_num * qkv_dim)
+        self.q_first_concat = self.Wq_first(encoded_q1)
         # shape: (batch, n, head_num*qkv_dim)
 
     def forward(self, encoded_last_node, ninf_mask):
@@ -224,7 +209,6 @@ class TSP_Decoder(nn.Module):
 
         out_concat = multi_head_attention(q, self.k, self.v, rank3_ninf_mask=ninf_mask)
         # shape: (batch, pomo, head_num*qkv_dim)
-
 
         mh_atten_out = self.multi_head_combine(out_concat)
         # shape: (batch, pomo, embedding)
@@ -247,25 +231,7 @@ class TSP_Decoder(nn.Module):
         probs = F.softmax(score_masked, dim=2)
         # shape: (batch, pomo, problem)
 
-        return probs
-    
-    def q_forward(self, encoded_last_node):
-        head_num = self.model_params['head_num']
-
-        #  Multi-Head Attention
-        #######################################################
-        q_last = reshape_by_heads(self.Wq_last(encoded_last_node), head_num=head_num)
-        # shape: (batch, head_num, pomo, qkv_dim)
-        q_trans = q_last.transpose(1, 2).contiguous()
-        # shape: (batch, n, head_num, qkv_dim)
-        batch, n, head_num, qkv_dim = q_trans.shape
-        q_last_concat = q_trans.view(batch, n, head_num * qkv_dim)
-        # shape: (batch, n, head_num*qkv_dim)
-
-        q = self.q_first_concat + q_last_concat
-        
-        return q
-
+        return probs, q
 
 ########################################
 # NN SUB CLASS / FUNCTIONS

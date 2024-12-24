@@ -22,7 +22,7 @@ sys.path.insert(0, "../..")  # for utils
 
 import logging
 from utils.utils import create_logger, copy_all_src
-
+import torch
 from TSPTrainer import TSPTrainer as Trainer
 
 
@@ -44,6 +44,7 @@ model_params = {
     'logit_clipping': 10,
     'ff_hidden_dim': 512,
     'eval_type': 'argmax',
+    'problem_size': 20,
 }
 
 optimizer_params = {
@@ -95,6 +96,7 @@ logger_params = {
 # main
 
 def main():
+    torch.autograd.set_detect_anomaly(True)
     if DEBUG_MODE:
         _set_debug_mode()
 

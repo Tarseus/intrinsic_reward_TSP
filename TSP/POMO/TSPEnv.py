@@ -80,16 +80,6 @@ class TSPEnv:
         # CREATE STEP STATE
         self.step_state = Step_State(BATCH_IDX=self.BATCH_IDX, POMO_IDX=self.POMO_IDX)
         self.step_state.ninf_mask = torch.zeros((self.batch_size, self.pomo_size, self.problem_size))
-        # shape: (batch, pomo, problem)
-        # self.current_state = torch.tensor([1,0,0]).repeat(self.problem_size, 1)
-        # coords = self.problems
-        # flags = torch.tensor([1, 0, 0]).repeat(self.problem_size, 1)
-        # base_tensor = torch.cat([
-        #     coords,  # (batch, problem_size, 2)
-        #     flags.unsqueeze(0).expand(self.batch_size, -1, -1)  # (batch, problem_size, 3)
-        # ], dim=2)  # 结果: (batch, problem_size, 5)
-        # self.current_state = base_tensor.unsqueeze(1).expand(-1, self.pomo_size, -1, -1)
-        # shape: (batch, pomo, node, 5) 前两维是坐标, 第三维代表没访问过, 第四维代表访问过, 第五维代表是当前节点
 
         reward = None
         done = False
@@ -129,7 +119,7 @@ class TSPEnv:
         if done:
             reward = -self._get_travel_distance()  # note the minus sign!
         else:
-            reward = None
+            reward = torch.zeros((self.batch_size, self.pomo_size))
 
         return self.step_state, reward, done
 

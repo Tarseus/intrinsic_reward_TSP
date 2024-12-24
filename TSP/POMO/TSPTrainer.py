@@ -150,6 +150,7 @@ class TSPTrainer:
             # avg_score, avg_loss = self._generate_sampled_data(batch_size)
             self._generate_sampled_data(batch_size)
             avg_score, avg_loss = self._update_model()
+            self._update_teacher()
             score_AM.update(avg_score, batch_size)
             loss_AM.update(avg_loss, batch_size)
 
@@ -179,7 +180,7 @@ class TSPTrainer:
         reset_state, _, _ = self.env.reset()
         self.model.pre_forward(reset_state)
 
-        prob_list = torch.zeros(size=(batch_size, self.env.pomo_size, 0))
+        # prob_list = torch.zeros(size=(batch_size, self.env.pomo_size, 0))
         # shape: (batch, pomo, 0~problem) i.e. tsp100: (64, 20, 0~100)
 
         # POMO Rollout
@@ -187,62 +188,69 @@ class TSPTrainer:
         state, reward, done = self.env.pre_step()
         epidata = []
         while not done:
-            selected, prob = self.model(state)
+            selected, probs, prob, state_embed = self.model(state)
             # shape: (batch, pomo)
-            state_embed = self.model.q_forward(state)
             # state, reward, done = self.env.step(selected)
             next_state, reward_hat, done = self.env_teacher.step(selected, state_embed, done)
-            next_state_embed = self.model.q_forward(next_state)
 
-            e_t = [state_embed, selected, reward_hat, next_state_embed, 0.0, prob]
             e_t = {
-                'state': state_embed,
+                'state': state_embed.clone(),
                 'action': selected,
                 'reward_hat': reward_hat,
-                'next_state': next_state_embed,
                 'G_hat': None,
-                'prob': prob
+                'prob': prob,
+                'probs': probs,
+                'done': done,
             }
             epidata.append(e_t)
 
             state = next_state
-            prob_list = torch.cat((prob_list, prob[:, :, None]), dim=2)
+            # prob_list = torch.cat((prob_list, prob[:, :, None]), dim=2)
         G_hat = torch.zeros_like(epidata[-1]['reward_hat'])
         for i in range(len(epidata) - 1, -1, -1):
             reward = epidata[i]['reward_hat']
-            G_hat = reward + self.env.gamma * G_hat
+            G_hat = reward + self.env_teacher.gamma * G_hat
             epidata[i]['G_hat'] = G_hat
         self.buffer.append(epidata)
 
     def _update_model(self):
+        recent_buffer_size = self.trainer_params['recent_buffer_size']
         loss_sum = 0
         score_sum = 0
-        
-        episode_data = self.buffer[-1]
-        states = torch.stack([step['state'] for step in episode_data])
-        actions = torch.stack([step['action'] for step in episode_data])
-        G_hats = torch.stack([step['G_hat'] for step in episode_data])
-        probs = torch.stack([step['prob'] for step in episode_data])
-        rewards = torch.stack([step['reward_hat'] for step in episode_data])
-        
-        # G_hats shape: (steps, batch, pomo)
-        baseline = G_hats.mean(dim=2, keepdim=True)  # (steps, batch, 1)
-        advantage = G_hats - baseline  # (steps, batch, pomo)
-        
-        log_probs = torch.log(probs + 1e-10)  # 添加epsilon防止log(0)
-        policy_loss = -(advantage.detach() * log_probs).mean()
-        
-        max_pomo_reward, _ = rewards[-1].max(dim=1)
-        score = -max_pomo_reward.mean()
-        
+        total_policy_loss = 0
+
+        for episode_data in list(self.buffer)[-recent_buffer_size:]:
+            states = torch.stack([step['state'].detach() for step in episode_data])
+            actions = torch.stack([step['action'] for step in episode_data])
+            G_hats = torch.stack([step['G_hat'] for step in episode_data])
+            prob = torch.stack([step['prob'] for step in episode_data])
+            rewards = torch.stack([step['reward_hat'] for step in episode_data])
+            
+            # G_hats shape: (steps, batch, pomo)
+            baseline = G_hats.mean(dim=2, keepdim=True)  # (steps, batch, 1)
+            advantage = G_hats - baseline  # (steps, batch, pomo)
+            
+            log_probs = torch.log(prob + 1e-10)
+            policy_loss = -(advantage.detach() * log_probs).mean()
+            
+            max_pomo_reward, _ = rewards[-1].max(dim=1)
+            score = -max_pomo_reward.mean()
+            
+            total_policy_loss += policy_loss
+            
+            loss_sum += policy_loss.item()
+            score_sum += score.item()
+
+        avg_policy_loss = total_policy_loss / len(self.buffer)
+
         self.optimizer.zero_grad()
-        policy_loss.backward()
+        avg_policy_loss.backward()
         self.optimizer.step()
-        
-        loss_sum += policy_loss.item()
-        score_sum += score.item()
-        
+
         avg_loss = loss_sum / len(self.buffer)
         avg_score = score_sum / len(self.buffer)
-        
+
         return avg_score, avg_loss
+    
+    def _update_teacher(self):
+        return self.env_teacher.update(self.buffer)
