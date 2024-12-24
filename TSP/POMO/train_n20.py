@@ -83,6 +83,8 @@ trainer_params = {
     },
     'buffer_size': 1000,
     'recent_buffer_size': 500,
+    'policy_update_freq': 1,
+    'reward_update_freq': 10,
 }
 
 logger_params = {

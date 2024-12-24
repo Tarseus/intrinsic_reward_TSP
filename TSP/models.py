@@ -110,7 +110,6 @@ class CriticNetwork(torch.nn.Module):
         pred_batch = self.network(state_batch)
 
         # compute the MSE loss for the critic network based on the batch
-        print(pred_batch.shape, target_batch.shape)
         loss = torch.nn.functional.smooth_l1_loss(pred_batch, target_batch.unsqueeze(3))
 
         # back-propagate the loss
