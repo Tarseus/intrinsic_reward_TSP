@@ -114,11 +114,11 @@ class EnvTeacher(gym.Env):
             for step in traj:
 
                 # save states batch and returns batch for training value network
-                s = step['state']
-                a = step['action']
-                probs = step['probs']
-                prob = step['prob']
-                G_bar = step['G_bar']
+                s = step['state'].detach()
+                a = step['action'].detach()
+                probs = step['probs'].detach()
+                prob = step['prob'].detach()
+                G_bar = step['G_bar'].detach()
                 states_batch.append(s)
                 returns_batch_G_bar.append(G_bar)
                 V_s = self.value_network.network(torch.Tensor(s)).detach().squeeze()
@@ -139,23 +139,9 @@ class EnvTeacher(gym.Env):
                                                         one_hot_encoding_action_a_var) \
                                               - torch.sum(torch.stack(accumulator_sum_action_b))
 
-                accumulator.append(prob * (G_bar - V_s) *
-                                   final_result_left_hand_side)
+                accumulator.append(prob * (G_bar - V_s) * final_result_left_hand_side)
             
             loss = -torch.mean(torch.stack(accumulator))
-            # print(f"Loss shape: {loss.shape}")
-            # print(f"Loss computation graph:", loss.grad_fn)
-            # print(f"Loss requires_grad: {loss.requires_grad}")
-
-            # for name, param in self.SelfRS_network.named_parameters():
-            #     print(f"Parameter {name}:")
-            #     print(f"  requires_grad: {param.requires_grad}")
-            #     print(f"  shape: {param.shape}")
-            # for name, param in self.SelfRS_network.named_parameters():
-            #     if param.grad is not None:
-            #         print(f"Gradient for {name}:", param.grad.norm().item())
-            #     else:
-            #         print(f"No gradient for {name} - Parameter shape:", param.shape)
             # update SelfRS network
             self.SelfRS_network.zero_grad()
             self.SelfRS_network.optimizer.zero_grad()
@@ -163,7 +149,6 @@ class EnvTeacher(gym.Env):
             loss.backward()
             self.SelfRS_network.optimizer.step()
 
-            print(type(states_batch))
             states_batch = [s.detach().cpu() if torch.is_tensor(s) else s for s in states_batch]
             states_batch = np.array(states_batch)
             returns_batch_G_bar = [G_bar.detach().cpu() if torch.is_tensor(G_bar) else G_bar for G_bar in returns_batch_G_bar]

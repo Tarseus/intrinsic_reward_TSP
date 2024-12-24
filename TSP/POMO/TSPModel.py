@@ -52,9 +52,11 @@ class TSPModel(nn.Module):
                     selected = probs.reshape(batch_size * pomo_size, -1).multinomial(1) \
                         .squeeze(dim=1).reshape(batch_size, pomo_size)
                     # shape: (batch, pomo)
-
-                    prob = probs[state.BATCH_IDX, state.POMO_IDX, selected] \
-                        .reshape(batch_size, pomo_size)
+                    # prob = probs[state.BATCH_IDX, state.POMO_IDX, selected].reshape(batch_size, pomo_size)
+                    batch_idx = state.BATCH_IDX.detach() if isinstance(state.BATCH_IDX, torch.Tensor) else state.BATCH_IDX
+                    pomo_idx = state.POMO_IDX.detach() if isinstance(state.POMO_IDX, torch.Tensor) else state.POMO_IDX
+                    selected = selected.detach() if isinstance(selected, torch.Tensor) else selected
+                    prob = probs[batch_idx, pomo_idx, selected].clone().reshape(batch_size, pomo_size)
                     # shape: (batch, pomo)
 
                     if (prob > 1e-8).all():

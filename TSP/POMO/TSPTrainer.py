@@ -63,9 +63,6 @@ class TSPTrainer:
         # utility
         self.time_estimator = TimeEstimator()
 
-        # buffer
-        self.buffer = collections_deque(maxlen=trainer_params['buffer_size'])
-
         self.env_teacher = EnvTeacher(self.env,
                                       args = {"ExploB_lmbd": 1.0,
                                         "ExploB_max": 1.0,
@@ -80,6 +77,7 @@ class TSPTrainer:
                                       teacher_name="SelfRS")
 
     def run(self):
+        buffer = collections_deque(maxlen=self.trainer_params['buffer_size'])
         self.time_estimator.reset(self.start_epoch)
         for epoch in range(self.start_epoch, self.trainer_params['epochs']+1):
             self.logger.info('=================================================================')
@@ -88,7 +86,7 @@ class TSPTrainer:
             self.scheduler.step()
 
             # Train
-            train_score, train_loss = self._train_one_epoch(epoch)
+            train_score, train_loss = self._train_one_epoch(epoch, buffer)
             self.result_log.append('train_score', epoch, train_score)
             self.result_log.append('train_loss', epoch, train_loss)
 
@@ -134,8 +132,7 @@ class TSPTrainer:
                 self.logger.info("Now, printing log array...")
                 util_print_log_array(self.logger, self.result_log)
 
-    def _train_one_epoch(self, epoch):
-
+    def _train_one_epoch(self, epoch, buffer):
         score_AM = AverageMeter()
         loss_AM = AverageMeter()
 
@@ -148,9 +145,12 @@ class TSPTrainer:
             batch_size = min(self.trainer_params['train_batch_size'], remaining)
 
             # avg_score, avg_loss = self._generate_sampled_data(batch_size)
-            self._generate_sampled_data(batch_size)
-            avg_score, avg_loss = self._update_model()
-            self._update_teacher()
+            print('episode:', episode)
+            epi_data = self._generate_sampled_data(batch_size)
+            buffer.append(epi_data)
+            avg_score, avg_loss = self._update_model(buffer)
+            self._update_teacher(buffer)
+            buffer.clear()
             score_AM.update(avg_score, batch_size)
             loss_AM.update(avg_loss, batch_size)
 
@@ -189,17 +189,21 @@ class TSPTrainer:
         epidata = []
         while not done:
             selected, probs, prob, state_embed = self.model(state)
+            # from torchviz import make_dot
+            # dot = make_dot(probs, params=dict(self.model.named_parameters()))
+            # dot.render("conputation_graph", format="pdf")
             # shape: (batch, pomo)
             # state, reward, done = self.env.step(selected)
+            state_embed = state_embed.clone().detach()
             next_state, reward_hat, done = self.env_teacher.step(selected, state_embed, done)
 
             e_t = {
-                'state': state_embed.clone(),
-                'action': selected,
-                'reward_hat': reward_hat,
+                'state': state_embed.detach(),
+                'action': selected.detach(),
+                'reward_hat': reward_hat.detach(),
                 'G_hat': None,
-                'prob': prob,
-                'probs': probs,
+                'prob': prob.clone(),
+                'probs': probs.clone().detach(),
                 'done': done,
             }
             epidata.append(e_t)
@@ -208,19 +212,19 @@ class TSPTrainer:
             # prob_list = torch.cat((prob_list, prob[:, :, None]), dim=2)
         G_hat = torch.zeros_like(epidata[-1]['reward_hat'])
         for i in range(len(epidata) - 1, -1, -1):
-            reward = epidata[i]['reward_hat']
+            reward = epidata[i]['reward_hat'].detach()
             G_hat = reward + self.env_teacher.gamma * G_hat
             epidata[i]['G_hat'] = G_hat
-        self.buffer.append(epidata)
+        return epidata
 
-    def _update_model(self):
+    def _update_model(self, buffer):
         recent_buffer_size = self.trainer_params['recent_buffer_size']
         loss_sum = 0
         score_sum = 0
         total_policy_loss = 0
 
-        for episode_data in list(self.buffer)[-recent_buffer_size:]:
-            states = torch.stack([step['state'].detach() for step in episode_data])
+        for episode_data in list(buffer)[-recent_buffer_size:]:
+            states = torch.stack([step['state'] for step in episode_data])
             actions = torch.stack([step['action'] for step in episode_data])
             G_hats = torch.stack([step['G_hat'] for step in episode_data])
             prob = torch.stack([step['prob'] for step in episode_data])
@@ -231,7 +235,7 @@ class TSPTrainer:
             advantage = G_hats - baseline  # (steps, batch, pomo)
             
             log_probs = torch.log(prob + 1e-10)
-            policy_loss = -(advantage.detach() * log_probs).mean()
+            policy_loss = -(advantage * log_probs).mean()
             
             max_pomo_reward, _ = rewards[-1].max(dim=1)
             score = -max_pomo_reward.mean()
@@ -241,16 +245,18 @@ class TSPTrainer:
             loss_sum += policy_loss.item()
             score_sum += score.item()
 
-        avg_policy_loss = total_policy_loss / len(self.buffer)
+        avg_policy_loss = total_policy_loss / len(buffer)
 
         self.optimizer.zero_grad()
-        avg_policy_loss.backward()
+        print("avg_policy_loss.requires_grad:", avg_policy_loss.requires_grad)
+        print("probs.requires_grad:", prob.requires_grad)
+        avg_policy_loss.backward(retain_graph=True)
         self.optimizer.step()
 
-        avg_loss = loss_sum / len(self.buffer)
-        avg_score = score_sum / len(self.buffer)
+        avg_loss = loss_sum / len(buffer)
+        avg_score = score_sum / len(buffer)
 
         return avg_score, avg_loss
     
-    def _update_teacher(self):
-        return self.env_teacher.update(self.buffer)
+    def _update_teacher(self, buffer):
+        return self.env_teacher.update(buffer)
