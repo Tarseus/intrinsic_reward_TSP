@@ -114,14 +114,14 @@ class EnvTeacher(gym.Env):
             for step in traj:
 
                 # save states batch and returns batch for training value network
-                s = step['state'].detach()
-                a = step['action'].detach()
-                probs = step['probs'].detach()
-                prob = step['prob'].detach()
-                G_bar = step['G_bar'].detach()
+                s = step['state']
+                a = step['action']
+                probs = step['probs']
+                prob = step['prob']
+                G_bar = step['G_bar']
                 states_batch.append(s)
                 returns_batch_G_bar.append(G_bar)
-                V_s = self.value_network.network(torch.Tensor(s)).detach().squeeze()
+                V_s = self.value_network.network(torch.Tensor(s)).squeeze()
                 one_hot_encoding_action_a = np.zeros(self.n_actions)
                 one_hot_encoding_action_a[a.cpu()] = 1.0
                 one_hot_encoding_action_a_var = Variable(torch.Tensor(one_hot_encoding_action_a))
@@ -149,9 +149,9 @@ class EnvTeacher(gym.Env):
             loss.backward()
             self.SelfRS_network.optimizer.step()
 
-            states_batch = [s.detach().cpu() if torch.is_tensor(s) else s for s in states_batch]
+            states_batch = [s if torch.is_tensor(s) else s for s in states_batch]
             states_batch = np.array(states_batch)
-            returns_batch_G_bar = [G_bar.detach().cpu() if torch.is_tensor(G_bar) else G_bar for G_bar in returns_batch_G_bar]
+            returns_batch_G_bar = [G_bar if torch.is_tensor(G_bar) else G_bar for G_bar in returns_batch_G_bar]
             returns_batch_G_bar = np.array(returns_batch_G_bar)
 
             self.update_value_network(states_batch, returns_batch_G_bar)
