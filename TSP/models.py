@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 use_cuda = torch.cuda.is_available()
-device = torch.device("cuda" if use_cuda else "cpu")
+device = torch.device("cuda:0" if use_cuda else "cpu")
 
 class ActorNetwork(torch.nn.Module):
     def __init__(self, env, argv, n_nodes=256):
@@ -103,14 +103,12 @@ class CriticNetwork(torch.nn.Module):
         :param targets: np.array of values
         :return: -- # performs 1 update on Critic Network
         '''
-        state_batch = torch.Tensor(states)
-        target_batch = torch.Tensor(targets)
 
         # obtain the pred values for the states in the episode
-        pred_batch = self.network(state_batch)
+        pred_batch = self.network(states)
 
         # compute the MSE loss for the critic network based on the batch
-        loss = torch.nn.functional.smooth_l1_loss(pred_batch, target_batch.unsqueeze(3))
+        loss = torch.nn.functional.smooth_l1_loss(pred_batch, targets.unsqueeze(-1))
 
         # back-propagate the loss
         self.optimizer.zero_grad()

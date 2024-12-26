@@ -30,7 +30,7 @@ from TSPTrainer import TSPTrainer as Trainer
 # parameters
 
 env_params = {
-    'problem_size': 20,
+    'problem_size': 200,
     'pomo_size': 20,
     'gamma': 0.99,
 }
@@ -44,7 +44,7 @@ model_params = {
     'logit_clipping': 10,
     'ff_hidden_dim': 512,
     'eval_type': 'argmax',
-    'problem_size': 20,
+    'problem_size': 200,
 }
 
 optimizer_params = {
@@ -63,7 +63,7 @@ trainer_params = {
     'cuda_device_num': CUDA_DEVICE_NUM,
     'epochs': 100,
     'train_episodes': 100 * 1000,
-    'train_batch_size': 512,
+    'train_batch_size': 64,
     'logging': {
         'model_save_interval': 10,
         'img_save_interval': 10,

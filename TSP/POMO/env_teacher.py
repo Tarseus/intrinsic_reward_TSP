@@ -98,12 +98,10 @@ class EnvTeacher(gym.Env):
     def update_SelfRS(self, D):
 
         self.first_succesfull_traj = True
-        torch.autograd.set_detect_anomaly(True)
         postprocess_D = self.postprocess_data(D)
-
         for traj in postprocess_D:
-            states_batch = []
-            returns_batch_G_bar = []
+            # states_batch = []
+            # returns_batch_G_bar = []
             accumulator = []
 
             if traj[0]['G_bar'][0, 0] > 0.0 and self.first_succesfull_traj:
@@ -111,37 +109,44 @@ class EnvTeacher(gym.Env):
                 self.nonzero_return_count += 1
                 self.first_succesfull_traj = False
 
-            for step in traj:
-
-                # save states batch and returns batch for training value network
-                s = step['state']
-                a = step['action']
-                probs = step['probs']
-                prob = step['prob']
-                G_bar = step['G_bar']
-                states_batch.append(s)
-                returns_batch_G_bar.append(G_bar)
-                V_s = self.value_network.network(torch.Tensor(s)).squeeze()
-                one_hot_encoding_action_a = np.zeros(self.n_actions)
-                one_hot_encoding_action_a[a.cpu()] = 1.0
-                one_hot_encoding_action_a_var = Variable(torch.Tensor(one_hot_encoding_action_a))
-
-                # sum over action b
-                accumulator_sum_action_b = []
-                for b in range(self.n_actions):
-                    one_hot_encoding_action_b = np.zeros(self.n_actions)
-                    one_hot_encoding_action_b[b] = 1.0
-                    one_hot_encoding_action_b_var = Variable(torch.Tensor(one_hot_encoding_action_b))
-                    accumulator_sum_action_b.append(torch.sum(self.SelfRS_network.network(torch.Tensor(s)) *
-                                                              one_hot_encoding_action_b_var * probs[b]))
-
-                final_result_left_hand_side = torch.sum(self.SelfRS_network.network(torch.Tensor(s)) *
-                                                        one_hot_encoding_action_a_var) \
-                                              - torch.sum(torch.stack(accumulator_sum_action_b))
-
-                accumulator.append(prob * (G_bar - V_s) * final_result_left_hand_side)
+            # for step in traj:
+            #     # save states batch and returns batch for training value network
+            #     s = step['state'].detach()[:, 0, :] # shape: (batch, state_dim)
+            #     a = step['action'].detach()[:, 0] # shape: (batch)
+            #     probs = step['probs'].detach()[:, 0, :] # shape: (batch, problem_size)
+            #     prob = step['prob'].detach()[:, 0] # shape: (batch)
+            #     G_bar = step['G_bar'].detach()[:, 0] # shape: (batch, problem_size)
+            #     # states_batch.append(s)
+            #     # returns_batch_G_bar.append(G_bar)
+            #     V_s = self.value_network.network(s).squeeze()
+                
+            #     selected_values = self.SelfRS_network.network(s)  # shape: (batch, problem_size)
+            #     base = torch.sum(selected_values * probs, dim=1)
+                
+            #     selected_value_a = self.SelfRS_network.network(s)[:, a] # shape: (batch)
+            #     final_result_left_hand_side = selected_value_a - base
+            #     accumulator.append(prob * (G_bar - V_s) * final_result_left_hand_side)
+                
+            #     torch.cuda.empty_cache()
+            s_batch = torch.stack([step['state'][:, 0, :].detach() for step in traj]) # shape: (steps, batch, state_dim)
+            a_batch = torch.stack([step['action'][:, 0].detach() for step in traj]) # shape: (steps, batch)
+            probs_batch = torch.stack([step['probs'][:, 0, :].detach() for step in traj]) # shape: (steps, batch, problem_size)
+            prob_batch = torch.stack([step['prob'][:, 0].detach() for step in traj]) # shape: (steps, batch)
+            G_bar_batch = torch.stack([step['G_bar'][:, 0].detach() for step in traj]) # shape: (steps, batch)
+            V_s_batch = self.value_network.network(s_batch).squeeze() # shape: (steps, batch)
             
-            loss = -torch.mean(torch.stack(accumulator))
+            selected_values_batch = self.SelfRS_network.network(s_batch)  # shape: (steps, batch, problem_size)
+            base_batch = torch.sum(selected_values_batch * probs_batch, dim=2) # shape: (steps, batch)
+            
+            a_batch_expanded = a_batch.unsqueeze(-1)  # shape: (steps, batch, 1)
+            selected_value_a_batch = torch.gather(selected_values_batch, 2, a_batch_expanded).squeeze(-1)  # shape: (steps, batch)
+            final_result_left_hand_side_batch = selected_value_a_batch - base_batch  # shape: (steps, batch)
+            accumulator = prob_batch * (G_bar_batch - V_s_batch) * final_result_left_hand_side_batch  # shape: (steps, batch)
+            
+            del a_batch, probs_batch, prob_batch, V_s_batch, selected_values_batch, base_batch, selected_value_a_batch, final_result_left_hand_side_batch
+            torch.cuda.empty_cache()
+                
+            loss = -torch.mean(accumulator)
             # update SelfRS network
             self.SelfRS_network.zero_grad()
             self.SelfRS_network.optimizer.zero_grad()
@@ -149,12 +154,7 @@ class EnvTeacher(gym.Env):
             loss.backward()
             self.SelfRS_network.optimizer.step()
 
-            states_batch = [s if torch.is_tensor(s) else s for s in states_batch]
-            states_batch = np.array(states_batch)
-            returns_batch_G_bar = [G_bar if torch.is_tensor(G_bar) else G_bar for G_bar in returns_batch_G_bar]
-            returns_batch_G_bar = np.array(returns_batch_G_bar)
-
-            self.update_value_network(states_batch, returns_batch_G_bar)
+            self.update_value_network(s_batch, G_bar_batch)
 
     def update_value_network(self, states_batch, returns_batch):
         # update value network
@@ -168,16 +168,6 @@ class EnvTeacher(gym.Env):
         # Update SelfRS
         self.update_SelfRS(D)
     #enddef
-
-    def compute_df_dtheta(self, pi_log_softmax, actor_network):
-        actor_network.zero_grad()
-
-        grad_theta_pi = torch.autograd.grad(pi_log_softmax, actor_network.parameters(), retain_graph=True)
-        grad_theta_pi = [item.view(-1) for item in grad_theta_pi]
-        grad_theta_pi = torch.cat(grad_theta_pi)
-
-        return grad_theta_pi
-    # enddef
 
     def postprocess_data(self, D):
         postprocessed_D = []

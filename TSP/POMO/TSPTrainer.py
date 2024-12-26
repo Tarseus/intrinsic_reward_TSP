@@ -6,7 +6,7 @@ from TSPModel import TSPModel as Model
 
 from torch.optim import Adam as Optimizer
 from torch.optim.lr_scheduler import MultiStepLR as Scheduler
-
+import time
 from utils.utils import *
 from collections import deque as collections_deque
 from env_teacher import EnvTeacher
@@ -83,8 +83,6 @@ class TSPTrainer:
             self.logger.info('=================================================================')
 
             # LR Decay
-            self.scheduler.step()
-
             # Train
             train_score, train_loss = self._train_one_epoch(epoch, buffer)
             self.result_log.append('train_score', epoch, train_score)
@@ -131,6 +129,8 @@ class TSPTrainer:
                 self.logger.info(" *** Training Done *** ")
                 self.logger.info("Now, printing log array...")
                 util_print_log_array(self.logger, self.result_log)
+                
+            self.scheduler.step()
 
     def _train_one_epoch(self, epoch, buffer):
         score_AM = AverageMeter()
@@ -139,8 +139,12 @@ class TSPTrainer:
         train_num_episode = self.trainer_params['train_episodes']
         episode = 0
         loop_cnt = 0
+        batch_times = []
+        batch_count = 0
+        max_batches = 11
+        # while episode < train_num_episode and batch_count < max_batches:
         while episode < train_num_episode:
-
+            # start_time = time.time()
             remaining = train_num_episode - episode
             batch_size = min(self.trainer_params['train_batch_size'], remaining)
 
@@ -151,9 +155,14 @@ class TSPTrainer:
                 avg_score, avg_loss = self._update_model(buffer)
             if (loop_cnt + 1) % self.trainer_params['reward_update_freq'] == 0:
                 self._update_teacher(buffer)
-            buffer.clear()
             score_AM.update(avg_score, batch_size)
             loss_AM.update(avg_loss, batch_size)
+            
+            # end_time = time.time()
+            # batch_time = end_time - start_time
+            # batch_times.append(batch_time)
+            # batch_count += 1
+            loop_cnt += 1
 
             episode += batch_size
 
@@ -164,7 +173,14 @@ class TSPTrainer:
             self.logger.info('Epoch {:3d}: Train {:3d}/{:3d}({:1.1f}%)  Score: {:.4f},  Loss: {:.4f}'
                                 .format(epoch, episode, train_num_episode, 100. * episode / train_num_episode,
                                         score_AM.avg, loss_AM.avg))
+        # Calculate and log average batch time
+        # if batch_times:
+            # avg_batch_time = sum(batch_times) / len(batch_times)
+            # self.logger.info('Average batch time for {} batches: {:.4f} seconds'.format(max_batches, avg_batch_time))
 
+        # Exit after running five batches
+        # import sys
+        # sys.exit()
         # Log Once, for each epoch
         self.logger.info('Epoch {:3d}: Train ({:3.0f}%)  Score: {:.4f},  Loss: {:.4f}'
                          .format(epoch, 100. * episode / train_num_episode,
@@ -189,22 +205,20 @@ class TSPTrainer:
         state, reward, done = self.env.pre_step()
         epidata = []
         while not done:
+            # start_time = time.time()
             selected, probs, prob, state_embed = self.model(state)
-            # from torchviz import make_dot
-            # dot = make_dot(probs, params=dict(self.model.named_parameters()))
-            # dot.render("conputation_graph", format="pdf")
-            # shape: (batch, pomo)
-            # state, reward, done = self.env.step(selected)
+            # end_time = time.time()
             state_embed = state_embed.clone().detach()
-            next_state, reward_hat, done = self.env_teacher.step(selected, state_embed, done)
+            with torch.no_grad():
+                next_state, reward_hat, done = self.env_teacher.step(selected, state_embed, done)
 
             e_t = {
-                'state': state_embed.detach(),
-                'action': selected.detach(),
-                'reward_hat': reward_hat.detach(),
+                'state': state_embed,
+                'action': selected,
+                'reward_hat': reward_hat,
                 'G_hat': None,
-                'prob': prob.clone(),
-                'probs': probs.clone().detach(),
+                'prob': prob,
+                'probs': probs,
                 'done': done,
             }
             epidata.append(e_t)
@@ -219,7 +233,8 @@ class TSPTrainer:
         return epidata
 
     def _update_model(self, buffer):
-        recent_buffer_size = self.trainer_params['recent_buffer_size']
+        start_time = time.time()
+        recent_buffer_size = self.trainer_params['policy_update_freq']
         loss_sum = 0
         score_sum = 0
         total_policy_loss = 0
@@ -245,15 +260,16 @@ class TSPTrainer:
             
             loss_sum += policy_loss.item()
             score_sum += score.item()
-
-        avg_policy_loss = total_policy_loss / len(buffer)
-
+        
         self.optimizer.zero_grad()
-        avg_policy_loss.backward(retain_graph=True)
+        total_policy_loss.backward()
+        end_time = time.time()
+        # print('data_time:', end_time - start_time)
+        # exit()
         self.optimizer.step()
 
-        avg_loss = loss_sum / len(buffer)
-        avg_score = score_sum / len(buffer)
+        avg_loss = loss_sum
+        avg_score = score_sum
 
         return avg_score, avg_loss
     

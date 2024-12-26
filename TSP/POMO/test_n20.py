@@ -32,6 +32,7 @@ from TSPTester import TSPTester as Tester
 env_params = {
     'problem_size': 20,
     'pomo_size': 20,
+    'gamma': 0.99,
 }
 
 model_params = {
