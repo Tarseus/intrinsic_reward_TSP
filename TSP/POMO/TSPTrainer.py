@@ -98,7 +98,9 @@ class TSPTrainer:
             all_done = (epoch == self.trainer_params['epochs'])
             model_save_interval = self.trainer_params['logging']['model_save_interval']
             img_save_interval = self.trainer_params['logging']['img_save_interval']
-
+            if torch.cuda.memory_allocated() / 1024**2 > 20000:
+                print('out of memory!!!')
+                exit()
             if epoch > 1:  # save latest images, every epoch
                 self.logger.info("Saving log_image")
                 image_prefix = '{}/latest'.format(self.result_folder)
@@ -219,29 +221,27 @@ class TSPTrainer:
         score_sum = 0
         total_policy_loss = 0
 
-        for episode_data in list(buffer)[-recent_buffer_size:]:
-            with torch.no_grad():
-                states = torch.stack([step['state'] for step in episode_data])
-                actions = torch.stack([step['action'] for step in episode_data])
-                rewards = torch.stack([step['reward_hat'] for step in episode_data])
-                G_hats = torch.stack([step['G_hat'] for step in episode_data])
-            prob = torch.stack([step['prob'] for step in episode_data])
-                
-            
-            # G_hats shape: (steps, batch, pomo)
-            baseline = G_hats.mean(dim=2, keepdim=True)  # (steps, batch, 1)
-            advantage = G_hats - baseline  # (steps, batch, pomo)
-            
-            log_probs = torch.log(prob + 1e-10)
-            policy_loss = -(advantage * log_probs).mean()
-            
-            max_pomo_reward, _ = rewards[-1].max(dim=1)
-            score = -max_pomo_reward.mean()
-            
-            total_policy_loss += policy_loss
-            
-            loss_sum += policy_loss.item()
-            score_sum += score.item()
+        with torch.no_grad():
+            states = torch.stack([step['state'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
+            actions = torch.stack([step['action'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
+            rewards = torch.stack([step['reward_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
+            G_hats = torch.stack([step['G_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
+        prob = torch.stack([step['prob'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
+
+        # G_hats shape: (steps, batch, pomo)
+        baseline = G_hats.mean(dim=2, keepdim=True)  # (steps, batch, 1)
+        advantage = G_hats - baseline  # (steps, batch, pomo)
+
+        log_probs = torch.log(prob + 1e-10)
+        policy_loss = -(advantage * log_probs).mean()
+
+        max_pomo_reward, _ = rewards[-1].max(dim=1)
+        score = -max_pomo_reward.mean()
+
+        total_policy_loss += policy_loss
+
+        loss_sum += policy_loss.item()
+        score_sum += score.item()
         
         self.optimizer.zero_grad()
         total_policy_loss.backward()
@@ -256,6 +256,9 @@ class TSPTrainer:
         del states, actions, G_hats, prob, rewards, baseline, advantage, log_probs, policy_loss, max_pomo_reward
         torch.cuda.empty_cache()
         
+        end_time = time.time()
+        print('update_time:', end_time - start_time)
+        exit()
         return avg_score, avg_loss
     
     def _update_teacher(self, buffer):

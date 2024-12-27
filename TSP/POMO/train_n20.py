@@ -3,7 +3,7 @@
 
 DEBUG_MODE = False
 USE_CUDA = not DEBUG_MODE
-CUDA_DEVICE_NUM = 5
+CUDA_DEVICE_NUM = 1
 
 
 ##########################################################################################
@@ -30,7 +30,7 @@ from TSPTrainer import TSPTrainer as Trainer
 # parameters
 
 env_params = {
-    'problem_size': 100,
+    'problem_size': 200,
     'pomo_size': 20,
     'gamma': 0.99,
 }
@@ -44,7 +44,7 @@ model_params = {
     'logit_clipping': 10,
     'ff_hidden_dim': 512,
     'eval_type': 'argmax',
-    'problem_size': 100,
+    'problem_size': 200,
 }
 
 optimizer_params = {
@@ -81,7 +81,7 @@ trainer_params = {
         # 'path': './result/saved_tsp20_model',  # directory path of pre-trained model and log files saved.
         # 'epoch': 510,  # epoch version of pre-trained model to laod.
     },
-    'buffer_size': 1000,
+    'buffer_size': 20,
     'recent_buffer_size': 500,
     'policy_update_freq': 1,
     'reward_update_freq': 10,

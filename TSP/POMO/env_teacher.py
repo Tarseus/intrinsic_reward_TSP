@@ -96,7 +96,8 @@ class EnvTeacher(gym.Env):
         return self.update_SelfRS(D)
 
     def update_SelfRS(self, D):
-
+        # print(f"Allocated memory(before teacher update): {torch.cuda.memory_allocated() / 1024**2} MB")
+        # print(f"Reserved memory(before teacher update): {torch.cuda.memory_reserved() / 1024**2} MB")
         self.first_succesfull_traj = True
         postprocess_D = self.postprocess_data(D)
         for traj in postprocess_D:
@@ -138,6 +139,8 @@ class EnvTeacher(gym.Env):
             self.update_value_network(s_batch, G_bar_batch)
             del s_batch, G_bar_batch, accumulator
             torch.cuda.empty_cache()
+        # print(f"Allocated memory(after teacher update): {torch.cuda.memory_allocated() / 1024**2} MB")
+        # print(f"Reserved memory(after teacher update): {torch.cuda.memory_reserved() / 1024**2} MB")
 
     def update_value_network(self, states_batch, returns_batch):
         # update value network
