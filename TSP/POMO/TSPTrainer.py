@@ -139,16 +139,11 @@ class TSPTrainer:
         train_num_episode = self.trainer_params['train_episodes']
         episode = 0
         loop_cnt = 0
-        batch_times = []
-        batch_count = 0
-        max_batches = 11
         # while episode < train_num_episode and batch_count < max_batches:
         while episode < train_num_episode:
-            # start_time = time.time()
             remaining = train_num_episode - episode
             batch_size = min(self.trainer_params['train_batch_size'], remaining)
 
-            # avg_score, avg_loss = self._generate_sampled_data(batch_size)
             epi_data = self._generate_sampled_data(batch_size)
             buffer.append(epi_data)
             if (loop_cnt + 1) % self.trainer_params['policy_update_freq'] == 0:
@@ -157,31 +152,16 @@ class TSPTrainer:
                 self._update_teacher(buffer)
             score_AM.update(avg_score, batch_size)
             loss_AM.update(avg_loss, batch_size)
-            
-            # end_time = time.time()
-            # batch_time = end_time - start_time
-            # batch_times.append(batch_time)
-            # batch_count += 1
-            loop_cnt += 1
 
+            loop_cnt += 1
             episode += batch_size
 
-            # Log First 10 Batch, only at the first epoch
-            # if epoch == self.start_epoch:
-            #     loop_cnt += 1
-            #     if loop_cnt <= 10:
             self.logger.info('Epoch {:3d}: Train {:3d}/{:3d}({:1.1f}%)  Score: {:.4f},  Loss: {:.4f}'
                                 .format(epoch, episode, train_num_episode, 100. * episode / train_num_episode,
                                         score_AM.avg, loss_AM.avg))
-        # Calculate and log average batch time
-        # if batch_times:
-            # avg_batch_time = sum(batch_times) / len(batch_times)
-            # self.logger.info('Average batch time for {} batches: {:.4f} seconds'.format(max_batches, avg_batch_time))
+            del epi_data, avg_score, avg_loss
+            torch.cuda.empty_cache()
 
-        # Exit after running five batches
-        # import sys
-        # sys.exit()
-        # Log Once, for each epoch
         self.logger.info('Epoch {:3d}: Train ({:3.0f}%)  Score: {:.4f},  Loss: {:.4f}'
                          .format(epoch, 100. * episode / train_num_episode,
                                  score_AM.avg, loss_AM.avg))
@@ -240,11 +220,13 @@ class TSPTrainer:
         total_policy_loss = 0
 
         for episode_data in list(buffer)[-recent_buffer_size:]:
-            states = torch.stack([step['state'] for step in episode_data])
-            actions = torch.stack([step['action'] for step in episode_data])
-            G_hats = torch.stack([step['G_hat'] for step in episode_data])
+            with torch.no_grad():
+                states = torch.stack([step['state'] for step in episode_data])
+                actions = torch.stack([step['action'] for step in episode_data])
+                rewards = torch.stack([step['reward_hat'] for step in episode_data])
+                G_hats = torch.stack([step['G_hat'] for step in episode_data])
             prob = torch.stack([step['prob'] for step in episode_data])
-            rewards = torch.stack([step['reward_hat'] for step in episode_data])
+                
             
             # G_hats shape: (steps, batch, pomo)
             baseline = G_hats.mean(dim=2, keepdim=True)  # (steps, batch, 1)
@@ -271,6 +253,9 @@ class TSPTrainer:
         avg_loss = loss_sum
         avg_score = score_sum
 
+        del states, actions, G_hats, prob, rewards, baseline, advantage, log_probs, policy_loss, max_pomo_reward
+        torch.cuda.empty_cache()
+        
         return avg_score, avg_loss
     
     def _update_teacher(self, buffer):

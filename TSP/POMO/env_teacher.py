@@ -109,25 +109,6 @@ class EnvTeacher(gym.Env):
                 self.nonzero_return_count += 1
                 self.first_succesfull_traj = False
 
-            # for step in traj:
-            #     # save states batch and returns batch for training value network
-            #     s = step['state'].detach()[:, 0, :] # shape: (batch, state_dim)
-            #     a = step['action'].detach()[:, 0] # shape: (batch)
-            #     probs = step['probs'].detach()[:, 0, :] # shape: (batch, problem_size)
-            #     prob = step['prob'].detach()[:, 0] # shape: (batch)
-            #     G_bar = step['G_bar'].detach()[:, 0] # shape: (batch, problem_size)
-            #     # states_batch.append(s)
-            #     # returns_batch_G_bar.append(G_bar)
-            #     V_s = self.value_network.network(s).squeeze()
-                
-            #     selected_values = self.SelfRS_network.network(s)  # shape: (batch, problem_size)
-            #     base = torch.sum(selected_values * probs, dim=1)
-                
-            #     selected_value_a = self.SelfRS_network.network(s)[:, a] # shape: (batch)
-            #     final_result_left_hand_side = selected_value_a - base
-            #     accumulator.append(prob * (G_bar - V_s) * final_result_left_hand_side)
-                
-            #     torch.cuda.empty_cache()
             s_batch = torch.stack([step['state'][:, 0, :].detach() for step in traj]) # shape: (steps, batch, state_dim)
             a_batch = torch.stack([step['action'][:, 0].detach() for step in traj]) # shape: (steps, batch)
             probs_batch = torch.stack([step['probs'][:, 0, :].detach() for step in traj]) # shape: (steps, batch, problem_size)
@@ -155,6 +136,8 @@ class EnvTeacher(gym.Env):
             self.SelfRS_network.optimizer.step()
 
             self.update_value_network(s_batch, G_bar_batch)
+            del s_batch, G_bar_batch, accumulator
+            torch.cuda.empty_cache()
 
     def update_value_network(self, states_batch, returns_batch):
         # update value network
