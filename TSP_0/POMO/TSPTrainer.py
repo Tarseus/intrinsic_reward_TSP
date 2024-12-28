@@ -7,7 +7,7 @@ from TSPModel import TSPModel as Model
 
 from torch.optim import Adam as Optimizer
 from torch.optim.lr_scheduler import MultiStepLR as Scheduler
-
+from tqdm import tqdm
 from utils.utils import *
 
 
@@ -118,31 +118,33 @@ class TSPTrainer:
                 util_print_log_array(self.logger, self.result_log)
 
     def _train_one_epoch(self, epoch):
-
+        
         score_AM = AverageMeter()
         loss_AM = AverageMeter()
 
         train_num_episode = self.trainer_params['train_episodes']
         episode = 0
         loop_cnt = 0
-        while episode < train_num_episode:
+        with tqdm(total=train_num_episode, desc='Train') as pbar:
+            while episode < train_num_episode:
 
-            remaining = train_num_episode - episode
-            batch_size = min(self.trainer_params['train_batch_size'], remaining)
+                remaining = train_num_episode - episode
+                batch_size = min(self.trainer_params['train_batch_size'], remaining)
 
-            avg_score, avg_loss = self._train_one_batch(batch_size)
-            score_AM.update(avg_score, batch_size)
-            loss_AM.update(avg_loss, batch_size)
+                avg_score, avg_loss = self._train_one_batch(batch_size)
+                score_AM.update(avg_score, batch_size)
+                loss_AM.update(avg_loss, batch_size)
 
-            episode += batch_size
+                episode += batch_size
 
-            # Log First 10 Batch, only at the first epoch
-            if epoch == self.start_epoch:
-                loop_cnt += 1
-                if loop_cnt <= 10:
-                    self.logger.info('Epoch {:3d}: Train {:3d}/{:3d}({:1.1f}%)  Score: {:.4f},  Loss: {:.4f}'
-                                     .format(epoch, episode, train_num_episode, 100. * episode / train_num_episode,
-                                             score_AM.avg, loss_AM.avg))
+                # Log First 10 Batch, only at the first epoch
+                # if epoch == self.start_epoch:
+                #     loop_cnt += 1
+                #     if loop_cnt <= 10:
+                #         self.logger.info('Epoch {:3d}: Train {:3d}/{:3d}({:1.1f}%)  Score: {:.4f},  Loss: {:.4f}'
+                #                         .format(epoch, episode, train_num_episode, 100. * episode / train_num_episode,
+                #                                 score_AM.avg, loss_AM.avg))
+                pbar.update(batch_size)
 
         # Log Once, for each epoch
         self.logger.info('Epoch {:3d}: Train ({:3.0f}%)  Score: {:.4f},  Loss: {:.4f}'
@@ -152,7 +154,7 @@ class TSPTrainer:
         return score_AM.avg, loss_AM.avg
 
     def _train_one_batch(self, batch_size):
-
+        # start_time = time.time()
         # Prep
         ###############################################
         self.model.train()
@@ -173,6 +175,7 @@ class TSPTrainer:
             prob_list = torch.cat((prob_list, prob[:, :, None]), dim=2)
 
         # Loss
+        # print(prob_list.shape)
         ###############################################
         advantage = reward - reward.float().mean(dim=1, keepdims=True)
         # shape: (batch, pomo)
@@ -192,4 +195,7 @@ class TSPTrainer:
         self.model.zero_grad()
         loss_mean.backward()
         self.optimizer.step()
+        # end_time = time.time()
+        # print('Elapsed Time: {:.2f}'.format(end_time - start_time))
+        # exit()
         return score_mean.item(), loss_mean.item()

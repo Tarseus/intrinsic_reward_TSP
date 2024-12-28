@@ -30,7 +30,7 @@ from TSPTester import TSPTester as Tester
 # parameters
 
 env_params = {
-    'problem_size': 20,
+    'problem_size': 200,
     'pomo_size': 20,
 }
 

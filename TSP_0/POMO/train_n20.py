@@ -3,7 +3,7 @@
 
 DEBUG_MODE = False
 USE_CUDA = not DEBUG_MODE
-CUDA_DEVICE_NUM = 0
+CUDA_DEVICE_NUM = 2
 
 
 ##########################################################################################
@@ -30,7 +30,7 @@ from TSPTrainer import TSPTrainer as Trainer
 # parameters
 
 env_params = {
-    'problem_size': 20,
+    'problem_size': 100,
     'pomo_size': 20,
 }
 
@@ -59,12 +59,12 @@ optimizer_params = {
 trainer_params = {
     'use_cuda': USE_CUDA,
     'cuda_device_num': CUDA_DEVICE_NUM,
-    'epochs': 510,
+    'epochs': 100,
     'train_episodes': 100 * 1000,
-    'train_batch_size': 64,
+    'train_batch_size': 128,
     'logging': {
         'model_save_interval': 10,
-        'img_save_interval': 10,
+        'img_save_interval': 1,
         'log_image_params_1': {
             'json_foldername': 'log_image_style',
             'filename': 'style_tsp_20.json'

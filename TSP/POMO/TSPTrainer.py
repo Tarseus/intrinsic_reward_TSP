@@ -10,6 +10,7 @@ import time
 from utils.utils import *
 from collections import deque as collections_deque
 from env_teacher import EnvTeacher
+from tqdm import tqdm
 
 USE_INTRINSIC_REWARD = False
 class TSPTrainer:
@@ -141,28 +142,33 @@ class TSPTrainer:
         train_num_episode = self.trainer_params['train_episodes']
         episode = 0
         loop_cnt = 0
+        buffer.clear()
         # while episode < train_num_episode and batch_count < max_batches:
-        while episode < train_num_episode:
-            remaining = train_num_episode - episode
-            batch_size = min(self.trainer_params['train_batch_size'], remaining)
+        with tqdm(total=train_num_episode) as pbar:
+            while episode < train_num_episode:
+                remaining = train_num_episode - episode
+                batch_size = min(self.trainer_params['train_batch_size'], remaining)
 
-            epi_data = self._generate_sampled_data(batch_size)
-            buffer.append(epi_data)
-            if (loop_cnt + 1) % self.trainer_params['policy_update_freq'] == 0:
-                avg_score, avg_loss = self._update_model(buffer)
-            if (loop_cnt + 1) % self.trainer_params['reward_update_freq'] == 0:
-                self._update_teacher(buffer)
-            score_AM.update(avg_score, batch_size)
-            loss_AM.update(avg_loss, batch_size)
+                epi_data = self._generate_sampled_data(batch_size)
+                buffer.append(epi_data)
+                if (loop_cnt + 1) % self.trainer_params['policy_update_freq'] == 0:
+                    avg_score, avg_loss = self._update_model(buffer)
+                if (loop_cnt + 1) % self.trainer_params['reward_update_freq'] == 0:
+                    self._update_teacher(buffer)
+                score_AM.update(avg_score, batch_size)
+                loss_AM.update(avg_loss, batch_size)
 
-            loop_cnt += 1
-            episode += batch_size
+                episode += batch_size
 
-            self.logger.info('Epoch {:3d}: Train {:3d}/{:3d}({:1.1f}%)  Score: {:.4f},  Loss: {:.4f}'
-                                .format(epoch, episode, train_num_episode, 100. * episode / train_num_episode,
-                                        score_AM.avg, loss_AM.avg))
-            del epi_data, avg_score, avg_loss
-            torch.cuda.empty_cache()
+                # if epoch == self.start_epoch:
+                #     loop_cnt += 1
+                #     if loop_cnt <= 10:
+                #         self.logger.info('Epoch {:3d}: Train {:3d}/{:3d}({:1.1f}%)  Score: {:.4f},  Loss: {:.4f}'
+                #                             .format(epoch, episode, train_num_episode, 100. * episode / train_num_episode,
+                #                                     score_AM.avg, loss_AM.avg))
+                del epi_data, avg_score, avg_loss
+                torch.cuda.empty_cache()
+                pbar.update(batch_size)
 
         self.logger.info('Epoch {:3d}: Train ({:3.0f}%)  Score: {:.4f},  Loss: {:.4f}'
                          .format(epoch, 100. * episode / train_num_episode,
@@ -174,7 +180,6 @@ class TSPTrainer:
 
         # Prep
         ###############################################
-        self.model.train()
         self.env.load_problems(batch_size)
         reset_state, _, _ = self.env.reset()
         self.model.pre_forward(reset_state)
@@ -215,11 +220,10 @@ class TSPTrainer:
         return epidata
 
     def _update_model(self, buffer):
-        start_time = time.time()
+        # start_time = time.time()
+        policy_loss = None
+        self.model.train()
         recent_buffer_size = self.trainer_params['policy_update_freq']
-        loss_sum = 0
-        score_sum = 0
-        total_policy_loss = 0
 
         with torch.no_grad():
             states = torch.stack([step['state'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
@@ -227,39 +231,36 @@ class TSPTrainer:
             rewards = torch.stack([step['reward_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
             G_hats = torch.stack([step['G_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
         prob = torch.stack([step['prob'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
+        prob_list = prob.permute(1, 2, 0) # (batch, pomo, steps)
 
         # G_hats shape: (steps, batch, pomo)
         baseline = G_hats.mean(dim=2, keepdim=True)  # (steps, batch, 1)
         advantage = G_hats - baseline  # (steps, batch, pomo)
 
-        log_probs = torch.log(prob + 1e-10)
-        policy_loss = -(advantage * log_probs).mean()
+        log_probs = prob_list.log().sum(dim=2)  # (batch, pomo)
+        policy_loss = -advantage * log_probs
+        loss_mean = policy_loss.mean()
 
         max_pomo_reward, _ = rewards[-1].max(dim=1)
         score = -max_pomo_reward.mean()
-
-        total_policy_loss += policy_loss
-
-        loss_sum += policy_loss.item()
-        score_sum += score.item()
         
         self.optimizer.zero_grad()
-        total_policy_loss.backward()
+        loss_mean.backward()
         end_time = time.time()
-        # print('data_time:', end_time - start_time)
-        # exit()
         self.optimizer.step()
+        # for name, param in self.model.named_parameters():
+        #     if param.grad is not None:
+        #         # print(f"Parameter: {name}, Gradient: {param.grad}")
+        #         print(f"Parameter: {name}")
 
-        avg_loss = loss_sum
-        avg_score = score_sum
 
         del states, actions, G_hats, prob, rewards, baseline, advantage, log_probs, policy_loss, max_pomo_reward
         torch.cuda.empty_cache()
         
-        end_time = time.time()
-        print('update_time:', end_time - start_time)
-        exit()
-        return avg_score, avg_loss
+        # end_time = time.time()
+        # print('update_time:', end_time - start_time)
+        # exit()
+        return score.item(), loss_mean.item()
     
     def _update_teacher(self, buffer):
         return self.env_teacher.update(buffer)
