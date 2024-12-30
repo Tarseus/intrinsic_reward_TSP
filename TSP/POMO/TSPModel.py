@@ -24,7 +24,7 @@ class TSPModel(nn.Module):
         # shape: (batch, problem, EMBEDDING_DIM)
         self.decoder.set_kv(self.encoded_nodes)
         if self_rs_decoder is not None:
-            self_rs_decoder.set_kv(self.encoded_nodes)
+            self_rs_decoder.set_kv(self.encoded_nodes.clone().detach())
 
     def forward(self, state):
         batch_size = state.BATCH_IDX.size(0)
@@ -188,7 +188,6 @@ class TSP_Decoder(nn.Module):
     def set_kv(self, encoded_nodes):
         # encoded_nodes.shape: (batch, problem, embedding)
         head_num = self.model_params['head_num']
-
         self.k = reshape_by_heads(self.Wk(encoded_nodes), head_num=head_num)
         self.v = reshape_by_heads(self.Wv(encoded_nodes), head_num=head_num)
         # shape: (batch, head_num, pomo, qkv_dim)
@@ -328,7 +327,9 @@ def multi_head_attention_steps(q, k, v, rank2_ninf_mask=None, rank3_ninf_mask=No
     if rank3_ninf_mask is not None:
         score_scaled = score_scaled + rank3_ninf_mask[:, :, None, :].expand(steps, batch_s, head_num, input_s)
 
+    score_scaled[-1, :, :, :] = -1e20
     weights = nn.Softmax(dim=3)(score_scaled)
+    # ninf_mask of last state is fully masked, so the softmax output is nan, which is replaced by 0
     # shape: (steps, batch, head_num, problem)
 
     out = torch.matmul(weights.unsqueeze(3), v).squeeze()
@@ -458,7 +459,6 @@ class RexploitNetwork(TSP_Decoder):
         #######################################################
         score = torch.matmul(mh_atten_out.unsqueeze(2), self.single_head_key).squeeze()
         # shape: (steps, batch, problem)
-        
 
         sqrt_embedding_dim = self.model_params['sqrt_embedding_dim']
         logit_clipping = self.model_params['logit_clipping']
@@ -467,13 +467,19 @@ class RexploitNetwork(TSP_Decoder):
         # shape: (steps, batch, problem)
 
         score_clipped = logit_clipping * torch.tanh(score_scaled)
-
         score_masked = score_clipped + ninf_mask
-
-        probs = F.softmax(score_masked, dim=2)
         # shape: (steps, batch, problem)
-
-        # print(probs[-2], probs[-1])
-        print(ninf_mask[-1])
-        exit()
+        score_masked[-1, :, :] = -1e20
+        
+        probs = nn.Softmax(dim=2)(score_masked)
+        
+        # shape: (steps, batch, problem)
         return probs
+
+    def set_kv(self, encoded_nodes):
+        # encoded_nodes.shape: (batch, problem, embedding)
+        head_num = self.model_params['head_num']
+        self.k = reshape_by_heads(self.Wk(encoded_nodes).detach(), head_num=head_num)
+        self.v = reshape_by_heads(self.Wv(encoded_nodes).detach(), head_num=head_num)
+        # shape: (batch, head_num, pomo, qkv_dim)
+        self.single_head_key = encoded_nodes.transpose(1, 2)

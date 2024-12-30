@@ -30,7 +30,7 @@ from TSPTrainer import TSPTrainer as Trainer
 # parameters
 
 env_params = {
-    'problem_size': 100,
+    'problem_size': 50,
     'pomo_size': 20,
     'gamma': 0.99,
 }
@@ -44,7 +44,7 @@ model_params = {
     'logit_clipping': 10,
     'ff_hidden_dim': 512,
     'eval_type': 'argmax',
-    'problem_size': 100,
+    'problem_size': 50,
 }
 
 optimizer_params = {

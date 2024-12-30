@@ -127,11 +127,15 @@ class TSPTrainer:
         loop_cnt = 0
         with tqdm(total=train_num_episode, desc='Train') as pbar:
             while episode < train_num_episode:
+                start_time = time.time()
 
                 remaining = train_num_episode - episode
                 batch_size = min(self.trainer_params['train_batch_size'], remaining)
 
                 avg_score, avg_loss = self._train_one_batch(batch_size)
+                end_time = time.time()
+                print('Elapsed Time: {:.2f}'.format(end_time - start_time))
+                exit()
                 score_AM.update(avg_score, batch_size)
                 loss_AM.update(avg_loss, batch_size)
 
