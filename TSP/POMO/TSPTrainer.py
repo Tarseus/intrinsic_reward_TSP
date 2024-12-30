@@ -11,6 +11,7 @@ from utils.utils import *
 from collections import deque as collections_deque
 from env_teacher import EnvTeacher
 from tqdm import tqdm
+import copy
 
 USE_INTRINSIC_REWARD = False
 class TSPTrainer:
@@ -75,7 +76,8 @@ class TSPTrainer:
                                             "clipping_epsilon": 0.01,
                                             "use_clipping": False
                                         },
-                                      teacher_name="SelfRS")
+                                      teacher_name="SelfRS",
+                                      model_params=self.model_params)
 
     def run(self):
         buffer = collections_deque(maxlen=self.trainer_params['buffer_size'])
@@ -149,17 +151,17 @@ class TSPTrainer:
                 remaining = train_num_episode - episode
                 batch_size = min(self.trainer_params['train_batch_size'], remaining)
 
-                epi_data = self._generate_sampled_data(batch_size)
+                epi_data, decoder_q_first = self._generate_sampled_data(batch_size)
                 buffer.append(epi_data)
                 if (loop_cnt + 1) % self.trainer_params['policy_update_freq'] == 0:
                     avg_score, avg_loss = self._update_model(buffer)
                 if (loop_cnt + 1) % self.trainer_params['reward_update_freq'] == 0:
-                    self._update_teacher(buffer)
+                    self._update_teacher(buffer, decoder_q_first)
                 score_AM.update(avg_score, batch_size)
                 loss_AM.update(avg_loss, batch_size)
 
                 episode += batch_size
-
+                loop_cnt += 1
                 # if epoch == self.start_epoch:
                 #     loop_cnt += 1
                 #     if loop_cnt <= 10:
@@ -182,8 +184,8 @@ class TSPTrainer:
         ###############################################
         self.env.load_problems(batch_size)
         reset_state, _, _ = self.env.reset()
-        self.model.pre_forward(reset_state)
-
+        self.model.pre_forward(reset_state, self.env_teacher.SelfRS_network)
+        # set initial state and k, v for self_rs decoder
         # prob_list = torch.zeros(size=(batch_size, self.env.pomo_size, 0))
         # shape: (batch, pomo, 0~problem) i.e. tsp100: (64, 20, 0~100)
 
@@ -193,14 +195,14 @@ class TSPTrainer:
         epidata = []
         while not done:
             # start_time = time.time()
-            selected, probs, prob, state_embed = self.model(state)
+            selected, probs, prob, state_dict, decoder_q_first = self.model(state)
+            state_dict['embed_node'] = state_dict['embed_node'].clone().detach()
             # end_time = time.time()
-            state_embed = state_embed.clone().detach()
             with torch.no_grad():
-                next_state, reward_hat, done = self.env_teacher.step(selected, state_embed, done)
+                next_state, reward_hat, done = self.env_teacher.step(selected, state_dict, done)
 
             e_t = {
-                'state': state_embed,
+                'state_dict': copy.deepcopy(state_dict),
                 'action': selected,
                 'reward_hat': reward_hat,
                 'G_hat': None,
@@ -217,7 +219,7 @@ class TSPTrainer:
             reward = epidata[i]['reward_hat'].detach()
             G_hat = reward + self.env_teacher.gamma * G_hat
             epidata[i]['G_hat'] = G_hat
-        return epidata
+        return epidata, decoder_q_first
 
     def _update_model(self, buffer):
         # start_time = time.time()
@@ -226,7 +228,7 @@ class TSPTrainer:
         recent_buffer_size = self.trainer_params['policy_update_freq']
 
         with torch.no_grad():
-            states = torch.stack([step['state'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
+            # states = torch.stack([step['state_dict'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
             actions = torch.stack([step['action'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
             rewards = torch.stack([step['reward_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
             G_hats = torch.stack([step['G_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
@@ -248,13 +250,8 @@ class TSPTrainer:
         loss_mean.backward()
         end_time = time.time()
         self.optimizer.step()
-        # for name, param in self.model.named_parameters():
-        #     if param.grad is not None:
-        #         # print(f"Parameter: {name}, Gradient: {param.grad}")
-        #         print(f"Parameter: {name}")
 
-
-        del states, actions, G_hats, prob, rewards, baseline, advantage, log_probs, policy_loss, max_pomo_reward
+        del actions, G_hats, prob, rewards, baseline, advantage, log_probs, policy_loss, max_pomo_reward
         torch.cuda.empty_cache()
         
         # end_time = time.time()
@@ -262,5 +259,5 @@ class TSPTrainer:
         # exit()
         return score.item(), loss_mean.item()
     
-    def _update_teacher(self, buffer):
-        return self.env_teacher.update(buffer)
+    def _update_teacher(self, buffer, decoder_q_first):
+        return self.env_teacher.update(buffer, decoder_q_first)

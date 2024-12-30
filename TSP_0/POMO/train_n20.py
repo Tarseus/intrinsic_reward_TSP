@@ -30,7 +30,7 @@ from TSPTrainer import TSPTrainer as Trainer
 # parameters
 
 env_params = {
-    'problem_size': 100,
+    'problem_size': 50,
     'pomo_size': 20,
 }
 
@@ -59,7 +59,7 @@ optimizer_params = {
 trainer_params = {
     'use_cuda': USE_CUDA,
     'cuda_device_num': CUDA_DEVICE_NUM,
-    'epochs': 100,
+    'epochs': 500,
     'train_episodes': 100 * 1000,
     'train_batch_size': 128,
     'logging': {

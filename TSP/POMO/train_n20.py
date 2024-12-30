@@ -1,7 +1,7 @@
 ##########################################################################################
 # Machine Environment Config
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 USE_CUDA = not DEBUG_MODE
 CUDA_DEVICE_NUM = 1
 
@@ -84,7 +84,7 @@ trainer_params = {
     'buffer_size': 20,
     'recent_buffer_size': 500,
     'policy_update_freq': 1,
-    'reward_update_freq': 10,
+    'reward_update_freq': 2,
 }
 
 logger_params = {
@@ -117,7 +117,7 @@ def main():
 
 def _set_debug_mode():
     global trainer_params
-    trainer_params['epochs'] = 2
+    trainer_params['epochs'] = 5
     trainer_params['train_episodes'] = 10
     trainer_params['train_batch_size'] = 4
 
