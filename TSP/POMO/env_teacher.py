@@ -94,6 +94,7 @@ class EnvTeacher(gym.Env):
         # print(f"Reserved memory(before teacher update): {torch.cuda.memory_reserved() / 1024**2} MB")
         self.first_succesfull_traj = True
         self.SelfRS_network.q_first = decoder_q_first
+        self.value_network.q_first = decoder_q_first
         postprocess_D = self.postprocess_data(D)
         recent_buffer_size = self.trainer_params['reward_update_freq']
         for traj in postprocess_D[-recent_buffer_size:]:
@@ -113,7 +114,7 @@ class EnvTeacher(gym.Env):
             probs_batch = torch.stack([step['probs'][:, 0, :].detach() for step in traj]) # shape: (steps, batch, problem_size)
             prob_batch = torch.stack([step['prob'][:, 0].detach() for step in traj]) # shape: (steps, batch)
             G_bar_batch = torch.stack([step['G_bar'][:, 0].detach() for step in traj]) # shape: (steps, batch)
-            V_s_batch = self.value_network.network(s_batch).squeeze() # shape: (steps, batch)
+            V_s_batch = self.value_network(s_batch, ninf_mask_batch).squeeze() # shape: (steps, batch)
             
             selected_values_batch = self.SelfRS_network(s_batch, ninf_mask_batch)  # shape: (steps, batch, problem_size)
             base_batch = torch.sum(selected_values_batch * probs_batch, dim=2) # shape: (steps, batch)
@@ -136,15 +137,15 @@ class EnvTeacher(gym.Env):
             loss.backward()
             self.SelfRS_network.optimizer.step()
 
-            self.update_value_network(s_batch, G_bar_batch)
+            self.update_value_network(s_batch, G_bar_batch, ninf_mask_batch)
             # del s_batch, G_bar_batch, accumulator
             # torch.cuda.empty_cache()
         # print(f"Allocated memory(after teacher update): {torch.cuda.memory_allocated() / 1024**2} MB")
         # print(f"Reserved memory(after teacher update): {torch.cuda.memory_reserved() / 1024**2} MB")
 
-    def update_value_network(self, states_batch, returns_batch):
+    def update_value_network(self, states_batch, returns_batch, ninf_mask_batch = None):
         # update value network
-        loss_critic = self.value_network.update(states_batch, returns_batch)
+        loss_critic = self.value_network.update(states_batch, returns_batch, ninf_mask_batch)
     #enddef
 
     def update_ExploRS(self, D):

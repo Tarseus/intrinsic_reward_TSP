@@ -1,7 +1,7 @@
 ##########################################################################################
 # Machine Environment Config
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 USE_CUDA = not DEBUG_MODE
 CUDA_DEVICE_NUM = 1
 
@@ -61,9 +61,9 @@ optimizer_params = {
 trainer_params = {
     'use_cuda': USE_CUDA,
     'cuda_device_num': CUDA_DEVICE_NUM,
-    'epochs': 100,
+    'epochs': 500,
     'train_episodes': 100 * 1000,
-    'train_batch_size': 128,
+    'train_batch_size': 384,
     'logging': {
         'model_save_interval': 10,
         'img_save_interval': 1,

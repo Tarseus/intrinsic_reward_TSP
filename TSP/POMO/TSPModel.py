@@ -9,7 +9,6 @@ class TSPModel(nn.Module):
     def __init__(self, **model_params):
         super().__init__()
         self.model_params = model_params
-
         self.encoder = TSP_Encoder(**model_params)
         self.decoder = TSP_Decoder(**model_params)
         self.encoded_nodes = None
@@ -19,12 +18,13 @@ class TSPModel(nn.Module):
 
         self.problem_size = model_params['problem_size']
 
-    def pre_forward(self, reset_state, self_rs_decoder = None):
+    def pre_forward(self, reset_state, self_env_teacher = None):
         self.encoded_nodes = self.encoder(reset_state.problems)
         # shape: (batch, problem, EMBEDDING_DIM)
         self.decoder.set_kv(self.encoded_nodes)
-        if self_rs_decoder is not None:
-            self_rs_decoder.set_kv(self.encoded_nodes.clone().detach())
+        if self_env_teacher is not None:
+            self_env_teacher.SelfRS_network.set_kv(self.encoded_nodes.clone().detach())
+            self_env_teacher.value_network.set_kv(self.encoded_nodes.clone().detach())
 
     def forward(self, state):
         batch_size = state.BATCH_IDX.size(0)
@@ -364,9 +364,9 @@ class Add_And_Normalization_Module(nn.Module):
         return back_trans
 
 
-class Feed_Forward_Module(nn.Module):
+class Feed_Forward_Module(TSP_Decoder):
     def __init__(self, **model_params):
-        super().__init__()
+        super().__init__(**model_params)
         embedding_dim = model_params['embedding_dim']
         ff_hidden_dim = model_params['ff_hidden_dim']
 
@@ -378,20 +378,13 @@ class Feed_Forward_Module(nn.Module):
 
         return self.W2(F.relu(self.W1(input1)))
 
-class CriticNetwork(torch.nn.Module):
+class CriticNetwork(TSP_Decoder):
     def __init__(self, **model_params):
-        super().__init__()
+        super().__init__(**model_params)
         # specifics of the network architecture
-        self.network = torch.nn.Sequential(
-            # torch.nn.Linear(env.observation_space.shape[0], n_nodes),
-            torch.nn.Linear(128, 256), # 128 is the embedding dimension
-            torch.nn.ReLU(),
-            torch.nn.Linear(256, 1)
-        ).float()
+        self.last_layer = torch.nn.Linear(model_params['problem_size'], 1)
         # optimizer for the Critic Network
-        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.01)
-
-
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
 
     # returns the state-value of a state, in numpy form: V(state)
     def predict(self, state):
@@ -400,37 +393,74 @@ class CriticNetwork(torch.nn.Module):
         :return: np.array of action probabilities
         '''
         if state.ndim < 2:
-            values = self.network(torch.FloatTensor(state).unsqueeze(0).float())
+            values = self.forward(torch.FloatTensor(state).unsqueeze(0).float())
         else:  # for state batch
-            values = self.network(torch.FloatTensor(state))
+            values = self.forward(torch.FloatTensor(state))
 
         return values
     #enddef
 
-    def update(self, states, targets):
+    def update(self, states, targets, ninf_mask = None):
         '''
         :param states: np.array of batched states
         :param targets: np.array of values
         :return: -- # performs 1 update on Critic Network
         '''
-        pred_batch = self.network(states)
+        pred_batch = self.forward(states, ninf_mask)
         loss = torch.nn.functional.smooth_l1_loss(pred_batch, targets.unsqueeze(-1))
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
         return loss.detach().cpu().numpy()
+    
+    def forward(self, encoded_last_node, ninf_mask):
+        # encoded_last_node.shape: (steps, batch, embedding)
+        # ninf_mask.shape: (steps, batch, problem)
+        head_num = self.model_params['head_num']
 
-# class RexploitNetwork(torch.nn.Module):
-#     def __init__(self, **model_params):
-#         super().__init__()
-#         # specifics of network architecture
-#         self.network = TSP_Decoder(**model_params)
-#         # optimizer for the Actor Network
-#         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.01)
+        #  Multi-Head Attention
+        #######################################################
+        q_last = reshape_by_heads_steps(self.Wq_last(encoded_last_node), head_num=head_num)
+        # shape: (steps, batch, head_num, qkv_dim)
 
-#         for param in self.network.parameters():
-#             param.requires_grad = True
+        q = self.q_first + q_last
+        out_concat = multi_head_attention_steps(q, self.k, self.v, rank3_ninf_mask=ninf_mask)
+        # shape: (steps, batch, head_num*qkv_dim)
+
+        mh_atten_out = self.multi_head_combine(out_concat)
+        # shape: (steps, batch, embedding)
+
+        #  Single-Head Attention, for probability calculation
+        #######################################################
+        score = torch.matmul(mh_atten_out.unsqueeze(2), self.single_head_key).squeeze()
+        # shape: (steps, batch, problem)
+
+        sqrt_embedding_dim = self.model_params['sqrt_embedding_dim']
+        logit_clipping = self.model_params['logit_clipping']
+
+        score_scaled = score / sqrt_embedding_dim
+        # shape: (steps, batch, problem)
+
+        score_clipped = logit_clipping * torch.tanh(score_scaled)
+        score_masked = score_clipped + ninf_mask
+        # shape: (steps, batch, problem)
+        score_masked[-1, :, :] = -1e20
+        
+        probs = nn.Softmax(dim=2)(score_masked)
+        
+        values = self.last_layer(probs)
+        
+        # shape: (steps, batch, problem)
+        return values
+
+    def set_kv(self, encoded_nodes):
+        # encoded_nodes.shape: (batch, problem, embedding)
+        head_num = self.model_params['head_num']
+        self.k = reshape_by_heads(self.Wk(encoded_nodes).detach(), head_num=head_num)
+        self.v = reshape_by_heads(self.Wv(encoded_nodes).detach(), head_num=head_num)
+        # shape: (batch, head_num, pomo, qkv_dim)
+        self.single_head_key = encoded_nodes.transpose(1, 2)
 
 class RexploitNetwork(TSP_Decoder):
     def __init__(self, **model_params):
@@ -440,7 +470,6 @@ class RexploitNetwork(TSP_Decoder):
     def forward(self, encoded_last_node, ninf_mask):
         # encoded_last_node.shape: (steps, batch, embedding)
         # ninf_mask.shape: (steps, batch, problem)
-        # print(ninf_mask[0])
         head_num = self.model_params['head_num']
 
         #  Multi-Head Attention

@@ -188,7 +188,7 @@ class TSPTrainer:
         ###############################################
         self.env.load_problems(batch_size)
         reset_state, _, _ = self.env.reset()
-        self.model.pre_forward(reset_state, self.env_teacher.SelfRS_network)
+        self.model.pre_forward(reset_state, self.env_teacher)
         # set initial state and k, v for self_rs decoder
         # prob_list = torch.zeros(size=(batch_size, self.env.pomo_size, 0))
         # shape: (batch, pomo, 0~problem) i.e. tsp100: (64, 20, 0~100)
