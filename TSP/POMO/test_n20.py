@@ -1,7 +1,7 @@
 ##########################################################################################
 # Machine Environment Config
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 USE_CUDA = not DEBUG_MODE
 CUDA_DEVICE_NUM = 0
 
@@ -32,6 +32,7 @@ from TSPTester import TSPTester as Tester
 env_params = {
     'problem_size': 20,
     'pomo_size': 20,
+    'gamma': 0.99,
 }
 
 model_params = {

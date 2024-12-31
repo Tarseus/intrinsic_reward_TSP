@@ -1,9 +1,9 @@
 ##########################################################################################
 # Machine Environment Config
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 USE_CUDA = not DEBUG_MODE
-CUDA_DEVICE_NUM = 0
+CUDA_DEVICE_NUM = 1
 
 
 ##########################################################################################
@@ -30,7 +30,7 @@ from TSPTrainer import TSPTrainer as Trainer
 # parameters
 
 env_params = {
-    'problem_size': 20,
+    'problem_size': 50,
     'pomo_size': 20,
     'gamma': 0.99,
 }
@@ -44,7 +44,7 @@ model_params = {
     'logit_clipping': 10,
     'ff_hidden_dim': 512,
     'eval_type': 'argmax',
-    'problem_size': 20,
+    'problem_size': 50,
 }
 
 optimizer_params = {
@@ -63,10 +63,10 @@ trainer_params = {
     'cuda_device_num': CUDA_DEVICE_NUM,
     'epochs': 100,
     'train_episodes': 100 * 1000,
-    'train_batch_size': 512,
+    'train_batch_size': 128,
     'logging': {
         'model_save_interval': 10,
-        'img_save_interval': 10,
+        'img_save_interval': 1,
         'log_image_params_1': {
             'json_foldername': 'log_image_style',
             'filename': 'style_tsp_20.json'
@@ -81,10 +81,10 @@ trainer_params = {
         # 'path': './result/saved_tsp20_model',  # directory path of pre-trained model and log files saved.
         # 'epoch': 510,  # epoch version of pre-trained model to laod.
     },
-    'buffer_size': 1000,
+    'buffer_size': 20,
     'recent_buffer_size': 500,
     'policy_update_freq': 1,
-    'reward_update_freq': 10,
+    'reward_update_freq': 2,
 }
 
 logger_params = {
@@ -117,7 +117,7 @@ def main():
 
 def _set_debug_mode():
     global trainer_params
-    trainer_params['epochs'] = 2
+    trainer_params['epochs'] = 5
     trainer_params['train_episodes'] = 10
     trainer_params['train_batch_size'] = 4
 
