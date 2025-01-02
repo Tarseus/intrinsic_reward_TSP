@@ -442,14 +442,12 @@ class CriticNetwork(TSP_Decoder):
         score_scaled = score / sqrt_embedding_dim
         # shape: (steps, batch, problem)
 
-        score_clipped = logit_clipping * torch.tanh(score_scaled)
-        score_masked = score_clipped + ninf_mask
-        # shape: (steps, batch, problem)
-        score_masked[-1, :, :] = -1e20
+        # score_clipped = logit_clipping * torch.tanh(score_scaled)
+        # score_masked = score_clipped + ninf_mask
+        # # shape: (steps, batch, problem)
+        # score_masked[-1, :, :] = -1e20
         
-        probs = nn.Softmax(dim=2)(score_masked)
-        
-        values = self.last_layer(probs)
+        values = self.last_layer(score_scaled)
         
         # shape: (steps, batch, problem)
         return values
@@ -495,15 +493,15 @@ class RexploitNetwork(TSP_Decoder):
         score_scaled = score / sqrt_embedding_dim
         # shape: (steps, batch, problem)
 
-        score_clipped = logit_clipping * torch.tanh(score_scaled)
-        score_masked = score_clipped + ninf_mask
-        # shape: (steps, batch, problem)
-        score_masked[-1, :, :] = -1e20
+        # score_clipped = logit_clipping * torch.tanh(score_scaled)
+        # score_masked = score_clipped + ninf_mask
+        # # shape: (steps, batch, problem)
+        # score_masked[-1, :, :] = -1e20
         
-        probs = nn.Softmax(dim=2)(score_masked)
+        # probs = nn.Softmax(dim=2)(score_masked)
         
         # shape: (steps, batch, problem)
-        return probs
+        return score_scaled
 
     def set_kv(self, encoded_nodes):
         # encoded_nodes.shape: (batch, problem, embedding)

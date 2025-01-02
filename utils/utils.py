@@ -278,8 +278,7 @@ def _build_log_image_plt(img_params,
     ylim_min = config['ylim']['min']
     ylim_max = config['ylim']['max']
     if ylim_min is None:
-        # ylim_min = plt.gca().dataLim.ymin
-        ylim_min = 0
+        ylim_min = plt.gca().dataLim.ymin
     if ylim_max is None:
         ylim_max = plt.gca().dataLim.ymax
     plt.ylim(ylim_min, ylim_max)
@@ -287,8 +286,7 @@ def _build_log_image_plt(img_params,
     xlim_min = config['xlim']['min']
     xlim_max = config['xlim']['max']
     if xlim_min is None:
-        # xlim_min = plt.gca().dataLim.xmin
-        xlim_min = 0
+        xlim_min = plt.gca().dataLim.xmin
     if xlim_max is None:
         xlim_max = plt.gca().dataLim.xmax
     plt.xlim(xlim_min, xlim_max)

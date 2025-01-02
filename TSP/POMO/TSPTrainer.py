@@ -145,6 +145,7 @@ class TSPTrainer:
         train_num_episode = self.trainer_params['train_episodes']
         episode = 0
         loop_cnt = 0
+        reward_error = 0
         buffer.clear()
         # while episode < train_num_episode and batch_count < max_batches:
         with tqdm(total=train_num_episode) as pbar:
@@ -161,25 +162,21 @@ class TSPTrainer:
                     avg_score, avg_loss = self._update_model(buffer)
                 
                 if (loop_cnt + 1) % self.trainer_params['reward_update_freq'] == 0:
-                    self._update_teacher(buffer, decoder_q_first)
+                    relative_reward_error, average_non_zero = self._update_teacher(buffer, decoder_q_first)
+                    reward_error += relative_reward_error
                 score_AM.update(avg_score, batch_size)
                 loss_AM.update(avg_loss, batch_size)
 
                 episode += batch_size
                 loop_cnt += 1
-                # if epoch == self.start_epoch:
-                #     loop_cnt += 1
-                #     if loop_cnt <= 10:
-                #         self.logger.info('Epoch {:3d}: Train {:3d}/{:3d}({:1.1f}%)  Score: {:.4f},  Loss: {:.4f}'
-                #                             .format(epoch, episode, train_num_episode, 100. * episode / train_num_episode,
-                #                                     score_AM.avg, loss_AM.avg))
+                
                 torch.cuda.empty_cache()
                 pbar.update(batch_size)
 
-        self.logger.info('Epoch {:3d}: Train ({:3.0f}%)  Score: {:.4f},  Loss: {:.4f}'
-                         .format(epoch, 100. * episode / train_num_episode,
-                                 score_AM.avg, loss_AM.avg))
-
+        if (epoch + 1) % 4 == 0:
+            self.logger.info('Epoch {:3d}: Train ({:3.0f}%)  Score: {:.4f},  Loss: {:.4f}, Reward Diff: {:.4f}, R_h None Zero Count: {:.4f}'
+                    .format(epoch, 100. * episode / train_num_episode,
+                            score_AM.avg, loss_AM.avg, (reward_error * self.trainer_params['reward_update_freq']) / loop_cnt, average_non_zero))
         return score_AM.avg, loss_AM.avg
 
     def _generate_sampled_data(self, batch_size):
@@ -235,14 +232,20 @@ class TSPTrainer:
         prob = torch.stack([step['prob'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
         prob_list = prob.permute(1, 2, 0) # (batch, pomo, steps)
 
+        G_hats_mean = G_hats.mean(dim=2, keepdim=True)
+        G_hats_std = G_hats.std(dim=2, keepdim=True)
+        G_hats_normalized = (G_hats - G_hats_mean) / (G_hats_std + 1e-8)
         # G_hats shape: (steps, batch, pomo)
-        baseline = G_hats.mean(dim=2, keepdim=True)  # (steps, batch, 1)
-        advantage = G_hats - baseline  # (steps, batch, pomo)
-
-        log_probs = prob_list.log().sum(dim=2)  # (batch, pomo)
-        policy_loss = -advantage * log_probs
-        loss_mean = policy_loss.mean()
-
+        baseline = G_hats_normalized.mean(dim=2, keepdim=True)  # (steps, batch, 1)
+        advantage = G_hats_normalized - baseline  # (steps, batch, pomo)
+        
+        # shape: (batch, pomo)
+        log_prob = prob_list.log().sum(dim=2)
+        # size = (batch, pomo)
+        loss = -advantage * log_prob  # Minus Sign: To Increase REWARD
+        # shape: (batch, pomo)
+        loss_mean = loss.mean()
+        
         max_pomo_reward, _ = rewards[-1].max(dim=1)
         score = -max_pomo_reward.mean()
         

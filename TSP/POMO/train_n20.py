@@ -3,7 +3,7 @@
 
 DEBUG_MODE = False
 USE_CUDA = not DEBUG_MODE
-CUDA_DEVICE_NUM = 1
+CUDA_DEVICE_NUM = 4
 
 
 ##########################################################################################
@@ -61,12 +61,12 @@ optimizer_params = {
 trainer_params = {
     'use_cuda': USE_CUDA,
     'cuda_device_num': CUDA_DEVICE_NUM,
-    'epochs': 500,
+    'epochs': 100,
     'train_episodes': 100 * 1000,
     'train_batch_size': 384,
     'logging': {
         'model_save_interval': 10,
-        'img_save_interval': 1,
+        'img_save_interval': 10,
         'log_image_params_1': {
             'json_foldername': 'log_image_style',
             'filename': 'style_tsp_20.json'
@@ -84,12 +84,12 @@ trainer_params = {
     'buffer_size': 20,
     'recent_buffer_size': 500,
     'policy_update_freq': 1,
-    'reward_update_freq': 2,
+    'reward_update_freq': 5,
 }
 
 logger_params = {
     'log_file': {
-        'desc': 'train__tsp_n20',
+        'desc': f"train__tsp_n{env_params['problem_size']}_pomo{env_params['pomo_size']}",
         'filename': 'run_log'
     }
 }
