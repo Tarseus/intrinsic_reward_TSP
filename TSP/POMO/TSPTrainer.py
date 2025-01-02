@@ -162,7 +162,7 @@ class TSPTrainer:
                     avg_score, avg_loss = self._update_model(buffer)
                 
                 if (loop_cnt + 1) % self.trainer_params['reward_update_freq'] == 0:
-                    relative_reward_error, average_non_zero = self._update_teacher(buffer, decoder_q_first)
+                    relative_reward_error, average_non_zero = self._update_teacher(buffer)
                     reward_error += relative_reward_error
                 score_AM.update(avg_score, batch_size)
                 loss_AM.update(avg_loss, batch_size)
@@ -198,7 +198,7 @@ class TSPTrainer:
             selected, probs, prob, state_dict, decoder_q_first = self.model(state)
             state_dict['embed_node'] = state_dict['embed_node'].detach()
             with torch.no_grad():
-                next_state, reward_hat, done = self.env_teacher.step(selected, state_dict, done)
+                next_state, reward_hat, done = self.env_teacher.step(selected, state_dict, done, decoder_q_first)
 
             e_t = {
                 'state_dict': copy.deepcopy(state_dict),
@@ -218,7 +218,7 @@ class TSPTrainer:
             reward = epidata[i]['reward_hat']
             G_hat.mul_(self.env_teacher.gamma).add_(reward)
             epidata[i]['G_hat'] = G_hat
-        return epidata, decoder_q_first.detach()
+        return epidata, decoder_q_first
 
     def _update_model(self, buffer):
         # start_time = time.time()
@@ -255,5 +255,5 @@ class TSPTrainer:
         
         return score.item(), loss_mean.item()
     
-    def _update_teacher(self, buffer, decoder_q_first):
-        return self.env_teacher.update(buffer, decoder_q_first)
+    def _update_teacher(self, buffer):
+        return self.env_teacher.update(buffer)

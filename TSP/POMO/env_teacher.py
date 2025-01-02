@@ -5,8 +5,9 @@ import gym
 import copy
 import utils
 import TSPModel
+from Config import CUDA_DEVICE_NUM
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device('cuda', CUDA_DEVICE_NUM)
 
 class EnvTeacher(gym.Env):
 
@@ -52,11 +53,14 @@ class EnvTeacher(gym.Env):
         return np.array(self.env.reset())
     # enddef
 
-    def step(self, action, state_dict, done):
+    def step(self, action, state_dict, done, decoder_q_first):
         r_hat = None
-        current_state_embed = state_dict['embed_node']
+        # current_state_embed = state_dict['embed_node']
         next_state, reward, done = self.env.step(action)
-        r_hat = self.get_reward(current_state_embed, action, next_state.current_node, done)
+        self.SelfRS_network.q_first = decoder_q_first
+        self.SelfRS_network.q_first_steps = decoder_q_first[:, :, 0, :]
+        self.value_network.q_first = decoder_q_first[:, :, 0, :]
+        r_hat = self.get_reward(state_dict, action, next_state.current_node, done)
 
         return next_state, r_hat, done
 
@@ -67,8 +71,9 @@ class EnvTeacher(gym.Env):
             return r_orig
 
         elif self.teacher_name == "SelfRS":
-            return r_orig + self.Rexploit(state, action) if self.switch_teacher \
-                else r_orig
+            # return r_orig + self.Rexploit(state, action) if self.switch_teacher \
+            #     else r_orig
+            return r_orig + self.Rexploit(state, action)
 
     def get_reward_print(self, state, action):
         next_state = self.env.get_transition(state, action)
@@ -82,19 +87,26 @@ class EnvTeacher(gym.Env):
         return state_int
 
     def Rexploit(self, state, action):
-        R_exploit = self.SelfRS_network.network(torch.Tensor(state))
-        return R_exploit[action] * self.clipping_epsilon
+        # action.shape: (batch, pomo)
+        state_embedding = state['embed_node']
+        ninf_mask = state['ninf_mask']
+        R_exploit = self.SelfRS_network.batch_forward(state_embedding, ninf_mask)
+        # shape: (batch, pomo, problem_size)
+        batch_size, pomo_size, problem_size = R_exploit.shape
+        batch_indices = np.arange(batch_size)[:, None]  # shape: (batch, 1)
+        pomo_indices = np.arange(pomo_size)  # shape: (pomo,)
+
+        selected_R_exploit = R_exploit[batch_indices, pomo_indices, action]
+        return selected_R_exploit * self.clipping_epsilon
     # enddef
 
-    def update(self, D, decoder_q_first):
-        return self.update_SelfRS(D, decoder_q_first)
+    def update(self, D):
+        return self.update_SelfRS(D)
 
-    def update_SelfRS(self, D, decoder_q_first):
+    def update_SelfRS(self, D):
         # print(f"Allocated memory(before teacher update): {torch.cuda.memory_allocated() / 1024**2} MB")
         # print(f"Reserved memory(before teacher update): {torch.cuda.memory_reserved() / 1024**2} MB")
         self.first_succesfull_traj = True
-        self.SelfRS_network.q_first = decoder_q_first
-        self.value_network.q_first = decoder_q_first
         postprocess_D = self.postprocess_data(D)
         recent_buffer_size = self.trainer_params['reward_update_freq']
         for traj in postprocess_D[-recent_buffer_size:]:
@@ -118,7 +130,7 @@ class EnvTeacher(gym.Env):
             reward_hat_batch = torch.stack([step['reward_hat'][:, 0].detach() for step in traj]) # shape: (steps, batch)
             relative_error_batch = torch.abs((reward_bar_batch - reward_hat_batch) / (reward_bar_batch+1e-20)).mean()
             V_s_batch = self.value_network(s_batch, ninf_mask_batch).squeeze() # shape: (steps, batch)
-            selected_values_batch = self.SelfRS_network(s_batch, ninf_mask_batch)  # shape: (steps, batch, problem_size)
+            selected_values_batch = self.SelfRS_network.steps_forward(s_batch, ninf_mask_batch)  # shape: (steps, batch, problem_size)
             base_batch = torch.sum(selected_values_batch * probs_batch, dim=2) # shape: (steps, batch)
             
             a_batch_expanded = a_batch.unsqueeze(-1)  # shape: (steps, batch, 1)

@@ -3,8 +3,7 @@
 
 DEBUG_MODE = False
 USE_CUDA = not DEBUG_MODE
-CUDA_DEVICE_NUM = 4
-
+from Config import CUDA_DEVICE_NUM
 
 ##########################################################################################
 # Path Config
@@ -81,11 +80,12 @@ trainer_params = {
         # 'path': './result/saved_tsp20_model',  # directory path of pre-trained model and log files saved.
         # 'epoch': 510,  # epoch version of pre-trained model to laod.
     },
-    'buffer_size': 20,
     'recent_buffer_size': 500,
     'policy_update_freq': 1,
     'reward_update_freq': 5,
 }
+
+trainer_params['buffer_size'] = max(trainer_params['policy_update_freq'], trainer_params['reward_update_freq'])
 
 logger_params = {
     'log_file': {

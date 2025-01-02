@@ -75,7 +75,8 @@ class TSPModel(nn.Module):
                 prob = None
 
         # self.decoder.q_first只取第一个pomo
-        return selected, probs, prob, state_dict, self.decoder.q_first[:, :, 0, :]
+        # return selected, probs, prob, state_dict, self.decoder.q_first[:, :, 0, :]
+        return selected, probs, prob, state_dict, self.decoder.q_first.detach()
 
 def _get_encoding(encoded_nodes, node_index_to_pick):
     # encoded_nodes.shape: (batch, problem, embedding)
@@ -291,6 +292,8 @@ def multi_head_attention(q, k, v, rank2_ninf_mask=None, rank3_ninf_mask=None):
     if rank3_ninf_mask is not None:
         score_scaled = score_scaled + rank3_ninf_mask[:, None, :, :].expand(batch_s, head_num, n, input_s)
 
+    if torch.isinf(score_scaled).all():
+        score_scaled = torch.zeros_like(score_scaled)
     weights = nn.Softmax(dim=3)(score_scaled)
     # shape: (batch, head_num, n, problem)
 
@@ -415,8 +418,8 @@ class CriticNetwork(TSP_Decoder):
         return loss.detach().cpu().numpy()
     
     def forward(self, encoded_last_node, ninf_mask):
-        # encoded_last_node.shape: (steps, batch, embedding)
-        # ninf_mask.shape: (steps, batch, problem)
+        # encoded_last_node.shape: (steps, batch, pomo, embedding)
+        # ninf_mask.shape: (steps, batch, pomo, problem)
         head_num = self.model_params['head_num']
 
         #  Multi-Head Attention
@@ -441,11 +444,6 @@ class CriticNetwork(TSP_Decoder):
 
         score_scaled = score / sqrt_embedding_dim
         # shape: (steps, batch, problem)
-
-        # score_clipped = logit_clipping * torch.tanh(score_scaled)
-        # score_masked = score_clipped + ninf_mask
-        # # shape: (steps, batch, problem)
-        # score_masked[-1, :, :] = -1e20
         
         values = self.last_layer(score_scaled)
         
@@ -465,7 +463,7 @@ class RexploitNetwork(TSP_Decoder):
         super().__init__(**model_params)
         self.optimizer = torch.optim.Adam(self.parameters(), lr=0.01)
 
-    def forward(self, encoded_last_node, ninf_mask):
+    def steps_forward(self, encoded_last_node, ninf_mask):
         # encoded_last_node.shape: (steps, batch, embedding)
         # ninf_mask.shape: (steps, batch, problem)
         head_num = self.model_params['head_num']
@@ -475,7 +473,7 @@ class RexploitNetwork(TSP_Decoder):
         q_last = reshape_by_heads_steps(self.Wq_last(encoded_last_node), head_num=head_num)
         # shape: (steps, batch, head_num, qkv_dim)
 
-        q = self.q_first + q_last
+        q = self.q_first_steps + q_last
         out_concat = multi_head_attention_steps(q, self.k, self.v, rank3_ninf_mask=ninf_mask)
         # shape: (steps, batch, head_num*qkv_dim)
 
@@ -501,6 +499,36 @@ class RexploitNetwork(TSP_Decoder):
         # probs = nn.Softmax(dim=2)(score_masked)
         
         # shape: (steps, batch, problem)
+        return score_scaled
+    
+    def batch_forward(self, encoded_last_node, ninf_mask):
+        head_num = self.model_params['head_num']
+
+        #  Multi-Head Attention
+        #######################################################
+        q_last = reshape_by_heads(self.Wq_last(encoded_last_node), head_num=head_num)
+        # shape: (batch, head_num, pomo, qkv_dim)
+
+        q = self.q_first + q_last
+        # shape: (batch, head_num, pomo, qkv_dim)
+
+        out_concat = multi_head_attention(q, self.k, self.v, rank3_ninf_mask=ninf_mask)
+        # shape: (batch, pomo, head_num*qkv_dim)
+
+        mh_atten_out = self.multi_head_combine(out_concat)
+        # shape: (batch, pomo, embedding)
+
+        #  Single-Head Attention, for probability calculation
+        #######################################################
+        score = torch.matmul(mh_atten_out, self.single_head_key)
+        # shape: (batch, pomo, problem)
+
+        sqrt_embedding_dim = self.model_params['sqrt_embedding_dim']
+        logit_clipping = self.model_params['logit_clipping']
+
+        score_scaled = score / sqrt_embedding_dim
+        # shape: (batch, pomo, problem)
+
         return score_scaled
 
     def set_kv(self, encoded_nodes):
