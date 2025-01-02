@@ -29,7 +29,7 @@ from TSPTrainer import TSPTrainer as Trainer
 # parameters
 
 env_params = {
-    'problem_size': 50,
+    'problem_size': 100,
     'pomo_size': 20,
     'gamma': 0.99,
 }
@@ -43,7 +43,7 @@ model_params = {
     'logit_clipping': 10,
     'ff_hidden_dim': 512,
     'eval_type': 'argmax',
-    'problem_size': 50,
+    'problem_size': 100,
 }
 
 optimizer_params = {
@@ -82,7 +82,7 @@ trainer_params = {
     },
     'recent_buffer_size': 500,
     'policy_update_freq': 1,
-    'reward_update_freq': 5,
+    'reward_update_freq': 2,
 }
 
 trainer_params['buffer_size'] = max(trainer_params['policy_update_freq'], trainer_params['reward_update_freq'])

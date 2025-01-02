@@ -173,10 +173,10 @@ class TSPTrainer:
                 torch.cuda.empty_cache()
                 pbar.update(batch_size)
 
-        if (epoch + 1) % 4 == 0:
-            self.logger.info('Epoch {:3d}: Train ({:3.0f}%)  Score: {:.4f},  Loss: {:.4f}, Reward Diff: {:.4f}, R_h None Zero Count: {:.4f}'
-                    .format(epoch, 100. * episode / train_num_episode,
-                            score_AM.avg, loss_AM.avg, (reward_error * self.trainer_params['reward_update_freq']) / loop_cnt, average_non_zero))
+        # if (epoch + 1) % 4 == 0:
+        self.logger.info('Epoch {:3d}: Train ({:3.0f}%)  Score: {:.4f},  Loss: {:.4f}, Reward Diff: {:.4f}, R_h None Zero Count: {:.4f}'
+                .format(epoch, 100. * episode / train_num_episode,
+                        score_AM.avg, loss_AM.avg, (reward_error * self.trainer_params['reward_update_freq']) / loop_cnt, average_non_zero))
         return score_AM.avg, loss_AM.avg
 
     def _generate_sampled_data(self, batch_size):

@@ -132,7 +132,7 @@ class EnvTeacher(gym.Env):
             V_s_batch = self.value_network(s_batch, ninf_mask_batch).squeeze() # shape: (steps, batch)
             selected_values_batch = self.SelfRS_network.steps_forward(s_batch, ninf_mask_batch)  # shape: (steps, batch, problem_size)
             base_batch = torch.sum(selected_values_batch * probs_batch, dim=2) # shape: (steps, batch)
-            
+
             a_batch_expanded = a_batch.unsqueeze(-1)  # shape: (steps, batch, 1)
             selected_value_a_batch = torch.gather(selected_values_batch, 2, a_batch_expanded).squeeze(-1)  # shape: (steps, batch)
             final_result_left_hand_side_batch = selected_value_a_batch - base_batch  # shape: (steps, batch)
