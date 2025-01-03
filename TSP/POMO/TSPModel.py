@@ -491,15 +491,16 @@ class RexploitNetwork(TSP_Decoder):
         score_scaled = score / sqrt_embedding_dim
         # shape: (steps, batch, problem)
 
-        # score_clipped = logit_clipping * torch.tanh(score_scaled)
+        score_clipped = logit_clipping * torch.tanh(score_scaled)
+        ninf_mask_processed = torch.where(ninf_mask == -float('inf'), torch.tensor(0.0), torch.tensor(1.0))
         # score_masked = score_clipped + ninf_mask
         # # shape: (steps, batch, problem)
         # score_masked[-1, :, :] = -1e20
         
         # probs = nn.Softmax(dim=2)(score_masked)
-        
+        score_masked = score_clipped*ninf_mask_processed
         # shape: (steps, batch, problem)
-        return score_scaled
+        return score_masked
     
     def batch_forward(self, encoded_last_node, ninf_mask):
         head_num = self.model_params['head_num']
@@ -528,8 +529,11 @@ class RexploitNetwork(TSP_Decoder):
 
         score_scaled = score / sqrt_embedding_dim
         # shape: (batch, pomo, problem)
+        score_clipped = logit_clipping * torch.tanh(score_scaled)
+        ninf_mask_processed = torch.where(ninf_mask == -float('inf'), torch.tensor(0.0), torch.tensor(1.0))
+        score_masked = score_clipped*ninf_mask_processed
 
-        return score_scaled
+        return score_masked
 
     def set_kv(self, encoded_nodes):
         # encoded_nodes.shape: (batch, problem, embedding)

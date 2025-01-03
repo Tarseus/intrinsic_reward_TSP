@@ -60,9 +60,9 @@ optimizer_params = {
 trainer_params = {
     'use_cuda': USE_CUDA,
     'cuda_device_num': CUDA_DEVICE_NUM,
-    'epochs': 100,
+    'epochs': 200,
     'train_episodes': 100 * 1000,
-    'train_batch_size': 384,
+    'train_batch_size': 400,
     'logging': {
         'model_save_interval': 10,
         'img_save_interval': 10,
@@ -82,10 +82,11 @@ trainer_params = {
     },
     'recent_buffer_size': 500,
     'policy_update_freq': 1,
-    'reward_update_freq': 2,
+    'reward_update_freq': 20,
 }
 
-trainer_params['buffer_size'] = max(trainer_params['policy_update_freq'], trainer_params['reward_update_freq'])
+# trainer_params['buffer_size'] = max(trainer_params['policy_update_freq'], trainer_params['reward_update_freq'])
+trainer_params['buffer_size'] = 2
 
 logger_params = {
     'log_file': {
