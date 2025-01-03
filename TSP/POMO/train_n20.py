@@ -1,7 +1,7 @@
 ##########################################################################################
 # Machine Environment Config
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 USE_CUDA = not DEBUG_MODE
 from Config import CUDA_DEVICE_NUM
 
@@ -32,6 +32,7 @@ env_params = {
     'problem_size': 100,
     'pomo_size': 20,
     'gamma': 0.99,
+    'batch_size': 384,
 }
 
 model_params = {
@@ -43,8 +44,8 @@ model_params = {
     'logit_clipping': 10,
     'ff_hidden_dim': 512,
     'eval_type': 'argmax',
-    'problem_size': 100,
 }
+model_params['problem_size'] = env_params['problem_size']
 
 optimizer_params = {
     'optimizer': {
@@ -62,7 +63,6 @@ trainer_params = {
     'cuda_device_num': CUDA_DEVICE_NUM,
     'epochs': 100,
     'train_episodes': 100 * 1000,
-    'train_batch_size': 384,
     'logging': {
         'model_save_interval': 10,
         'img_save_interval': 10,
@@ -84,7 +84,7 @@ trainer_params = {
     'policy_update_freq': 1,
     'reward_update_freq': 2,
 }
-
+trainer_params['train_batch_size'] = env_params['batch_size']
 trainer_params['buffer_size'] = max(trainer_params['policy_update_freq'], trainer_params['reward_update_freq'])
 
 logger_params = {
@@ -120,6 +120,7 @@ def _set_debug_mode():
     trainer_params['epochs'] = 5
     trainer_params['train_episodes'] = 10
     trainer_params['train_batch_size'] = 4
+    env_params['batch_size'] = 4
 
 
 def _print_config():

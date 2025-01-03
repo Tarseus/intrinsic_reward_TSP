@@ -1,7 +1,7 @@
 import torch
 from logging import getLogger
 
-from TSPEnv import TSPEnv as Env
+from TSPEnv import TSPVectorEnv as Env
 from TSPModel import TSPModel as Model
 
 from torch.optim import Adam as Optimizer
@@ -183,22 +183,21 @@ class TSPTrainer:
 
         # Prep
         ###############################################
-        self.env.load_problems(batch_size)
-        reset_state, _, _ = self.env.reset()
-        self.model.pre_forward(reset_state, self.env_teacher)
+        state, reward, done, info, problems = self.env.reset()
+        self.model.pre_forward(problems, self.env_teacher)
         # set initial state and k, v for self_rs decoder
         # prob_list = torch.zeros(size=(batch_size, self.env.pomo_size, 0))
         # shape: (batch, pomo, 0~problem) i.e. tsp100: (64, 20, 0~100)
 
         # POMO Rollout
         ###############################################
-        state, reward, done = self.env.pre_step()
         epidata = []
         while not done:
             selected, probs, prob, state_dict, decoder_q_first = self.model(state)
+            # selected.shape: (batch, pomo)
             state_dict['embed_node'] = state_dict['embed_node'].detach()
             with torch.no_grad():
-                next_state, reward_hat, done = self.env_teacher.step(selected, state_dict, done, decoder_q_first)
+                next_state, reward_hat, done = self.env_teacher.step(selected, state_dict, decoder_q_first)
 
             e_t = {
                 'state_dict': copy.deepcopy(state_dict),

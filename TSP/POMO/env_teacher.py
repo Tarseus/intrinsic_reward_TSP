@@ -23,10 +23,6 @@ class EnvTeacher(gym.Env):
         self.trainer_params = trainer_params
         self.teacher_name = teacher_name
 
-        # declare open gym necessary attributes
-        # self.observation_space = self.env.observation_space
-        # self.action_space = self.env.action_space
-        # self.n_actions = env.n_actions
         self.gamma = env.gamma
 
         # discretization
@@ -53,20 +49,21 @@ class EnvTeacher(gym.Env):
         return np.array(self.env.reset())
     # enddef
 
-    def step(self, action, state_dict, done, decoder_q_first):
+    def step(self, action, state_dict, decoder_q_first):
         r_hat = None
         # current_state_embed = state_dict['embed_node']
-        next_state, reward, done = self.env.step(action)
+        next_state, reward, done, info = self.env.step(action)
         self.SelfRS_network.q_first = decoder_q_first
         self.SelfRS_network.q_first_steps = decoder_q_first[:, :, 0, :]
         self.value_network.q_first = decoder_q_first[:, :, 0, :]
-        r_hat = self.get_reward(state_dict, action, next_state.current_node, done)
+        r_hat = self.get_reward(state_dict, action, next_state, done)
 
         return next_state, r_hat, done
 
     def get_reward(self, state, action, next_state, done):
 
         r_orig = self.env.get_reward(done)
+        r_orig = torch.tensor(r_orig).float()
         if self.teacher_name == "Orig":
             return r_orig
 
@@ -187,6 +184,8 @@ class EnvTeacher(gym.Env):
             # get original reward
             done = episode[t]['done']
             r_bar = self.get_original_reward(env_orig, done)
+            if isinstance(r_bar, np.ndarray):
+                r_bar = torch.tensor(r_bar).float()
             e_t = {
                 'state_dict': episode[t]['state_dict'],
                 'action': episode[t]['action'],
