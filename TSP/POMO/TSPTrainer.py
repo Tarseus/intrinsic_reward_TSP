@@ -14,6 +14,7 @@ from tqdm import tqdm
 import copy
 from wrappers.recordWrapper import RecordEpisodeStatistics
 from wrappers.syncVectorEnvPomo import SyncVectorEnv
+import numpy as np
 
 USE_INTRINSIC_REWARD = False
 class TSPTrainer:
@@ -49,7 +50,7 @@ class TSPTrainer:
         self.model = Model(**self.model_params)
         def make_env(seed, env_params):
             def thunk():
-                env = Env(**self.env_params)
+                env = Env(**self.env_params, model_params=self.model_params, trainer_params=self.trainer_params)
                 env = RecordEpisodeStatistics(env)
                 env.seed(seed)
                 env.action_space.seed(seed)
@@ -166,9 +167,6 @@ class TSPTrainer:
                 # start_time = time.time()
                 epi_data = self._generate_sampled_data(batch_size)
                 buffer.append(epi_data)
-                end_time = time.time()
-                # print(f"Time taken for one batch: {end_time - start_time}")
-                # exit()
                 if (loop_cnt + 1) % self.trainer_params['policy_update_freq'] == 0:
                     avg_score, avg_loss = self._update_model(buffer)
                 
@@ -210,7 +208,6 @@ class TSPTrainer:
             state_dict['embed_node'] = state_dict['embed_node'].detach()
             with torch.no_grad():
                 next_state, reward_hat, done = self.env_teacher.step(selected, state_dict, decoder_q_first)
-
             e_t = {
                 'state_dict': copy.deepcopy(state_dict),
                 'action': selected,

@@ -18,19 +18,19 @@ class TSPModel(nn.Module):
 
         self.problem_size = model_params['problem_size']
 
-    def pre_forward(self, problems, self_env_teacher = None):
+    def pre_forward(self, problems, self_env = None):
         if isinstance(problems, np.ndarray):
             problems = torch.FloatTensor(problems)
         self.encoded_nodes = self.encoder(problems)
         # shape: (batch, problem, EMBEDDING_DIM)
         self.decoder.set_kv(self.encoded_nodes)
-        if self_env_teacher is not None:
-            self_env_teacher.SelfRS_network.set_kv(self.encoded_nodes.clone().detach())
-            self_env_teacher.value_network.set_kv(self.encoded_nodes.clone().detach())
+        if self_env is not None:
+            self_env.SelfRS_network.set_kv(self.encoded_nodes.clone().detach())
+            self_env.value_network.set_kv(self.encoded_nodes.clone().detach())
 
     def forward(self, state):
-        batch_size = state["action_mask"].shape[0]
-        pomo_size = state["action_mask"].shape[1]
+        batch_size = state["ninf_mask"].shape[0]
+        pomo_size = state["ninf_mask"].shape[1]
         state_dict = {}
 
         if state["is_initial_action"].all():
@@ -45,17 +45,14 @@ class TSPModel(nn.Module):
             self.decoder.set_q1(encoded_first_node)
             # state_embed = torch.zeros((batch_size, pomo_size, self.qkv_dim*self.head_num))
             state_dict['embed_node'] = encoded_first_node
-            action_mask_np = np.where(state["action_mask"], 0, -np.inf)
-            state_dict['ninf_mask'] = torch.FloatTensor(action_mask_np).clone()
+            state_dict['ninf_mask'] = torch.FloatTensor(state["ninf_mask"]).clone()
         else:
             encoded_last_node = _get_encoding(self.encoded_nodes, state["last_node_idx"])
             # shape: (batch, pomo, embedding)
-            action_mask_np = np.where(state["action_mask"], 0, -np.inf)
-            mask = torch.FloatTensor(action_mask_np).clone()
-            probs, q_last_concat = self.decoder(encoded_last_node, ninf_mask=mask)
+            probs, q_last_concat = self.decoder(encoded_last_node, ninf_mask=state["ninf_mask"])
             # shape: (batch, pomo, problem)
             state_dict['embed_node'] = encoded_last_node
-            state_dict['ninf_mask'] = mask.clone()
+            state_dict['ninf_mask'] = torch.FloatTensor(state["ninf_mask"])
             # state_embed = self.decoder.q_first + q_last_concat
             # state_embed = state_embed.reshape(batch_size, pomo_size, self.qkv_dim*self.head_num)
             if self.training or self.model_params['eval_type'] == 'softmax':
