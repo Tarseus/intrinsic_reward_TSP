@@ -1,7 +1,7 @@
 ##########################################################################################
 # Machine Environment Config
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 USE_CUDA = not DEBUG_MODE
 from Config import CUDA_DEVICE_NUM
 
