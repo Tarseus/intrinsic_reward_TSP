@@ -49,20 +49,21 @@ class EnvTeacher(gym.Env):
         return np.array(self.env.reset())
     # enddef
 
-    def step(self, action, state_dict, decoder_q_first):
+    def step(self, action, state_embed, decoder_q_first):
         r_hat = None
         # current_state_embed = state_dict['embed_node']
         next_state, reward, done, info = self.env.step(action)
+        next_state["embed_node"] = state_embed
         self.SelfRS_network.q_first = decoder_q_first
         self.SelfRS_network.q_first_steps = decoder_q_first[:, :, 0, :]
         self.value_network.q_first = decoder_q_first[:, :, 0, :]
-        r_hat = self.get_reward(state_dict, action, next_state, done)
+        r_hat = self.get_reward(state_embed, action, next_state, done)
 
         return next_state, r_hat, done
 
     def get_reward(self, state, action, next_state, done):
 
-        r_orig = self.env.get_reward(done)
+        r_orig = self.env.get_reward()
         r_orig = torch.tensor(r_orig).float()
         if self.teacher_name == "Orig":
             return r_orig
@@ -208,7 +209,7 @@ class EnvTeacher(gym.Env):
         return postprocessed_epidata
 
     def get_original_reward(self, env_orig, done):
-        r_bar = env_orig.get_reward(done)
+        r_bar = env_orig.get_reward()
         return r_bar
 
     def get_pairwise_data_using_return(self, postprocessed_D):

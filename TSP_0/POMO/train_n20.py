@@ -1,7 +1,7 @@
 ##########################################################################################
 # Machine Environment Config
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 USE_CUDA = not DEBUG_MODE
 CUDA_DEVICE_NUM = 2
 
@@ -30,7 +30,7 @@ from TSPTrainer import TSPTrainer as Trainer
 # parameters
 
 env_params = {
-    'problem_size': 50,
+    'problem_size': 100,
     'pomo_size': 20,
 }
 
@@ -111,9 +111,10 @@ def main():
 
 def _set_debug_mode():
     global trainer_params
-    trainer_params['epochs'] = 2
+    trainer_params['epochs'] = 5
     trainer_params['train_episodes'] = 10
     trainer_params['train_batch_size'] = 4
+    trainer_params['batch_size'] = 4
 
 
 def _print_config():

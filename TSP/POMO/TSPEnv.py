@@ -50,7 +50,7 @@ class TSPVectorEnv(gym.Env):
         self.info = {}
         self.done = False
         self.total_dist = 0
-        return self.state, 0, self.done, self.info, self.problems
+        return self.state
 
     def _generate_problems(self):
         self.problems = np.random.rand(self.problem_size, 2)
@@ -63,7 +63,9 @@ class TSPVectorEnv(gym.Env):
 
         # need to revisit the first node after visited all other nodes
         self.done = (action == self.first) & self.is_all_visited()
-        if self.done:
+        assert self.done.any() == self.done.all() # only one done at a time
+
+        if self.done.any():
             self.reward = -self.total_dist
         else:
             self.reward = np.zeros(self.pomo_size)

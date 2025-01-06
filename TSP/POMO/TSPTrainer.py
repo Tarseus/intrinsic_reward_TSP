@@ -12,6 +12,8 @@ from collections import deque as collections_deque
 from env_teacher import EnvTeacher
 from tqdm import tqdm
 import copy
+from wrappers.recordWrapper import RecordEpisodeStatistics
+from wrappers.syncVectorEnvPomo import SyncVectorEnv
 
 USE_INTRINSIC_REWARD = False
 class TSPTrainer:
@@ -45,7 +47,16 @@ class TSPTrainer:
 
         # Main Components
         self.model = Model(**self.model_params)
-        self.env = Env(**self.env_params)
+        def make_env(seed, env_params):
+            def thunk():
+                env = Env(**self.env_params)
+                env = RecordEpisodeStatistics(env)
+                env.seed(seed)
+                env.action_space.seed(seed)
+                env.observation_space.seed(seed)
+                return env
+            return thunk
+        self.env = SyncVectorEnv([make_env(seed, self.env_params) for seed in range(self.env_params['batch_size'])])
         self.optimizer = Optimizer(self.model.parameters(), **self.optimizer_params['optimizer'])
         self.scheduler = Scheduler(self.optimizer, **self.optimizer_params['scheduler'])
 
@@ -153,7 +164,7 @@ class TSPTrainer:
                 remaining = train_num_episode - episode
                 batch_size = min(self.trainer_params['train_batch_size'], remaining)
                 # start_time = time.time()
-                epi_data, decoder_q_first = self._generate_sampled_data(batch_size)
+                epi_data = self._generate_sampled_data(batch_size)
                 buffer.append(epi_data)
                 end_time = time.time()
                 # print(f"Time taken for one batch: {end_time - start_time}")
@@ -183,8 +194,8 @@ class TSPTrainer:
 
         # Prep
         ###############################################
-        state, reward, done, info, problems = self.env.reset()
-        self.model.pre_forward(problems, self.env_teacher)
+        state = self.env.reset()
+        self.model.pre_forward(state["observations"], self.env_teacher)
         # set initial state and k, v for self_rs decoder
         # prob_list = torch.zeros(size=(batch_size, self.env.pomo_size, 0))
         # shape: (batch, pomo, 0~problem) i.e. tsp100: (64, 20, 0~100)
@@ -192,7 +203,8 @@ class TSPTrainer:
         # POMO Rollout
         ###############################################
         epidata = []
-        while not done:
+        done = np.array([False] * batch_size)
+        while not done.all():
             selected, probs, prob, state_dict, decoder_q_first = self.model(state)
             # selected.shape: (batch, pomo)
             state_dict['embed_node'] = state_dict['embed_node'].detach()
@@ -217,7 +229,7 @@ class TSPTrainer:
             reward = epidata[i]['reward_hat']
             G_hat.mul_(self.env_teacher.gamma).add_(reward)
             epidata[i]['G_hat'] = G_hat
-        return epidata, decoder_q_first
+        return epidata
 
     def _update_model(self, buffer):
         # start_time = time.time()

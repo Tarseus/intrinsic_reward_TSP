@@ -33,7 +33,7 @@ class TSPModel(nn.Module):
         pomo_size = state["action_mask"].shape[1]
         state_dict = {}
 
-        if state["is_initial_action"]:
+        if state["is_initial_action"].all():
             selected = torch.arange(pomo_size)[None, :].expand(batch_size, pomo_size)
             prob = torch.ones(size=(batch_size, pomo_size))
             probs = prob[:, :, None].expand(batch_size, pomo_size, self.problem_size).clone()
@@ -45,14 +45,17 @@ class TSPModel(nn.Module):
             self.decoder.set_q1(encoded_first_node)
             # state_embed = torch.zeros((batch_size, pomo_size, self.qkv_dim*self.head_num))
             state_dict['embed_node'] = encoded_first_node
-            state_dict['ninf_mask'] = torch.FloatTensor(state["action_mask"]).clone()
+            action_mask_np = np.where(state["action_mask"], 0, -np.inf)
+            state_dict['ninf_mask'] = torch.FloatTensor(action_mask_np).clone()
         else:
             encoded_last_node = _get_encoding(self.encoded_nodes, state["last_node_idx"])
             # shape: (batch, pomo, embedding)
-            probs, q_last_concat = self.decoder(encoded_last_node, ninf_mask=state["action_mask"])
+            action_mask_np = np.where(state["action_mask"], 0, -np.inf)
+            mask = torch.FloatTensor(action_mask_np).clone()
+            probs, q_last_concat = self.decoder(encoded_last_node, ninf_mask=mask)
             # shape: (batch, pomo, problem)
             state_dict['embed_node'] = encoded_last_node
-            state_dict['ninf_mask'] = torch.FloatTensor(state["action_mask"]).clone()
+            state_dict['ninf_mask'] = mask.clone()
             # state_embed = self.decoder.q_first + q_last_concat
             # state_embed = state_embed.reshape(batch_size, pomo_size, self.qkv_dim*self.head_num)
             if self.training or self.model_params['eval_type'] == 'softmax':
@@ -85,10 +88,11 @@ class TSPModel(nn.Module):
 def _get_encoding(encoded_nodes, node_index_to_pick):
     # encoded_nodes.shape: (batch, problem, embedding)
     # node_index_to_pick.shape: (batch, pomo)
-
-    batch_size = node_index_to_pick.size(0)
-    pomo_size = node_index_to_pick.size(1)
-    embedding_dim = encoded_nodes.size(2)
+    if isinstance(node_index_to_pick, np.ndarray):
+        node_index_to_pick = torch.LongTensor(node_index_to_pick)
+    batch_size = node_index_to_pick.shape[0]
+    pomo_size = node_index_to_pick.shape[1]
+    embedding_dim = encoded_nodes.shape[2]
 
     gathering_index = node_index_to_pick[:, :, None].expand(batch_size, pomo_size, embedding_dim)
     # shape: (batch, pomo, embedding)
