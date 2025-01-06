@@ -110,9 +110,6 @@ class EnvTeacher(gym.Env):
         postprocess_D = self.postprocess_data(D)
         recent_buffer_size = self.trainer_params['reward_update_freq']
         for traj in postprocess_D[-recent_buffer_size:]:
-            # states_batch = []
-            # returns_batch_G_bar = []
-            accumulator = []
 
             if traj[0]['G_bar'][0, 0] > 0.0 and self.first_succesfull_traj:
                 # 直接取第一个batch的第一个pomo的G_bar
@@ -126,9 +123,6 @@ class EnvTeacher(gym.Env):
             probs_batch = torch.stack([step['probs'][:, 0, :].detach() for step in traj]) # shape: (steps, batch, problem_size)
             prob_batch = torch.stack([step['prob'][:, 0].detach() for step in traj]) # shape: (steps, batch)
             G_bar_batch = torch.stack([step['G_bar'][:, 0].detach() for step in traj]) # shape: (steps, batch)
-            reward_bar_batch = torch.stack([step['reward_bar'][:, 0].detach() for step in traj]) # shape: (steps, batch)
-            reward_hat_batch = torch.stack([step['reward_hat'][:, 0].detach() for step in traj]) # shape: (steps, batch)
-            relative_error_batch = torch.abs((reward_bar_batch - reward_hat_batch) / (reward_bar_batch+1e-20)).mean()
             V_s_batch = self.value_network(s_batch, ninf_mask_batch).squeeze() # shape: (steps, batch)
             selected_values_batch = self.SelfRS_network.steps_forward(s_batch, ninf_mask_batch)  # shape: (steps, batch, problem_size)
             base_batch = torch.sum(selected_values_batch * probs_batch, dim=2) # shape: (steps, batch)
@@ -147,10 +141,6 @@ class EnvTeacher(gym.Env):
             self.SelfRS_network.optimizer.step()
 
             self.update_value_network(s_batch, G_bar_batch, ninf_mask_batch)
-            
-            non_zero_elements = (reward_hat_batch != 0).float().mean(dim=1).float()  # shape: (steps,)
-            average_non_zero_elements = non_zero_elements.sum().item()
-            return relative_error_batch, average_non_zero_elements
             # del s_batch, G_bar_batch, accumulator
             # torch.cuda.empty_cache()
         # print(f"Allocated memory(after teacher update): {torch.cuda.memory_allocated() / 1024**2} MB")

@@ -153,7 +153,7 @@ class TSPTrainer:
                 remaining = train_num_episode - episode
                 batch_size = min(self.trainer_params['train_batch_size'], remaining)
                 # start_time = time.time()
-                epi_data, decoder_q_first = self._generate_sampled_data(batch_size)
+                epi_data = self._generate_sampled_data(batch_size)
                 buffer.append(epi_data)
                 end_time = time.time()
                 # print(f"Time taken for one batch: {end_time - start_time}")
@@ -218,7 +218,7 @@ class TSPTrainer:
             reward = epidata[i]['reward_hat']
             G_hat.mul_(self.env_teacher.gamma).add_(reward)
             epidata[i]['G_hat'] = G_hat
-        return epidata, decoder_q_first
+        return epidata
 
     def _update_model(self, buffer):
         # start_time = time.time()
@@ -227,8 +227,8 @@ class TSPTrainer:
         recent_buffer_size = self.trainer_params['policy_update_freq']
 
         with torch.no_grad():
-            rewards = torch.stack([step['reward_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
             G_hats = torch.stack([step['G_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
+        rewards = torch.stack([step['reward_hat'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
         prob = torch.stack([step['prob'] for episode_data in list(buffer)[-recent_buffer_size:] for step in episode_data])
         prob_list = prob.permute(1, 2, 0) # (batch, pomo, steps)
 
