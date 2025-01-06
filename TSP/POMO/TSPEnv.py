@@ -41,7 +41,7 @@ class TSPVectorEnv(gym.Env):
         self.problem_size = env_params['problem_size']
         self.pomo_size = env_params['pomo_size']
         self.gamma = env_params['gamma']
-        self.reward_type = env_params['reward_type']
+        self.use_greedy = env_params['use_greedy']
 
         obs_dict = {"observations": spaces.Box(low=0, high=1, shape=(self.problem_size, 2))}
         obs_dict["ninf_mask"] = spaces.Box(
@@ -55,13 +55,9 @@ class TSPVectorEnv(gym.Env):
         self.action_space = spaces.MultiDiscrete([self.problem_size] * self.pomo_size)
         self.reward_space = None
         self.total_dist = 0
-
-        self.reset()
+        self.greedy_reward = 0
         
-        self.model_params = model_params
-        self.trainer_params = trainer_params
-        self.SelfRS_network = SharedSelfRSNetwork.get_instance(model_params)
-        self.value_network = SharedValueNetwork.get_instance(model_params)
+        self.reset()
 
     def seed(self, seed):
         np.random.seed(seed)
@@ -77,6 +73,7 @@ class TSPVectorEnv(gym.Env):
         self.info = {}
         self.done = False
         self.total_dist = 0
+        self.greedy_reward = 0
         return self.state
 
     def _generate_problems(self):
@@ -97,7 +94,10 @@ class TSPVectorEnv(gym.Env):
         else:
             self.reward = np.zeros(self.pomo_size)
 
-        return self.state, self.reward, self.done, self.info
+        if self.use_greedy:
+            return self.state, self.greedy_reward, self.done, self.info
+        else:
+            return self.state, self.reward, self.done, self.info
 
     def total_reward_step(self, action, state_dict, decoder_q_first):
         next_state, reward, done, info = self.step(action)
@@ -129,6 +129,7 @@ class TSPVectorEnv(gym.Env):
         self.visited[np.arange(self.pomo_size), destination] = True
         
         self.total_dist = self.total_dist + dist
+        self.greedy_reward = -self.total_dist
 
     def _update_state(self):
         obs = {"observations": self.problems}  # n x 2 array

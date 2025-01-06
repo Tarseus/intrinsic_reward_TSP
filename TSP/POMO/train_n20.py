@@ -33,7 +33,7 @@ env_params = {
     'pomo_size': 20,
     'gamma': 0.99,
     'batch_size': 384,
-    'reward_type': 'SelfRS',
+    'use_greedy': True,
 }
 
 model_params = {
